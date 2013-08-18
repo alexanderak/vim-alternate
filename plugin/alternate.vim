@@ -154,14 +154,11 @@ endfunction
 function! s:ShiftList(list, name, direction)
 	let index = match(a:list, a:name)
 	if index != -1
-		let index = index + (a:direction == 'n' ? 1 : -1)
-		if index != 0
-			let len = len(a:list)
-			if index < 0
-				let index = len + index
-			endif
+		let len = len(a:list)
+		let index = (index + a:direction) % len
+		if index != 0 && index != -len
+			call extend(a:list, remove(a:list, 0, index - 1))
 		endif
-		call extend(a:list, remove(a:list, 0, index - 1))
 	endif
 endfunction
 " }}}
@@ -177,7 +174,7 @@ function! s:ExpandDir(dir, pattern)
 		return a:dir . s:slash . strpart(a:pattern, 4)
 	elseif prefix == 'abs:'
 		return strpart(a:pattern, 4)
-	elseif empty(pattern)
+	elseif empty(a:pattern)
 		return a:dir
 	endif
 	return ''
@@ -295,7 +292,9 @@ function! s:FindAllAlternateFiles(filename, dict, existing)
 			if existing && !a:existing
 				let existing = 0
 				let hash = {}
-				let forlist = altlist
+				if !empty(altlist)
+					let forlist = altlist
+				endif
 				continue
 			endif
 			break
@@ -437,35 +436,40 @@ function! AlternateFile(filename, cmd, action)
 	let file = expand(file . ':p')
 	if empty(a:action)
 		let altfile = s:GetAlternateFile(file)
-	elseif a:action == 'n' || a:action == 'p'
+		if empty(altfile) || file == altfile
+			echo 'No alternate file'
+			return
+		endif
+	elseif a:action == 'a'
+		let altfile = s:AskAlternateFile(file)
+		if empty(altfile)
+			return
+		endif
+	else
 		let altlist = []
 		let altlist = s:GetNextAlternateFile(file, a:action)
 		let altfile = empty(altlist) ? '' : altlist[0]
-	elseif a:action == 'a'
-		let altfile = s:AskAlternateFile(file)
-	endif
-	if empty(altfile) || altfile == file
-		if a:action != 'a'
+		if len(altlist) <= 1
 			echo 'No alternate file'
+			return
 		endif
-		return
 	endif
 	let altbuf = bufnr(altfile)
 	call s:SwitchFile(altbuf, altfile, a:cmd)
 	call s:KeepAlternateFile(altfile, file)
 	call s:KeepAlternateFile(file, altfile)
-	if a:action == 'n' || a:action == 'p'
+	if exists('l:altlist')
 		call s:KeepAlternateList(altfile, altlist)
 	endif
 endfunction
 
-command! -nargs=0 A  call AlternateFile('%', '', '')
-command! -nargs=0 AE call AlternateFile('%', 'e', '')
-command! -nargs=0 AS call AlternateFile('%', 's', '')
-command! -nargs=0 AV call AlternateFile('%', 'v', '')
-command! -nargs=0 AT call AlternateFile('%', 't', '')
-command! -nargs=0 AN call AlternateFile('%', '', 'n')
-command! -nargs=0 AP call AlternateFile('%', '', 'p')
-command! -nargs=0 AA call AlternateFile('%', '', 'a')
+command! -nargs=0          A  call AlternateFile('%',  '', 0)
+command! -nargs=0          AE call AlternateFile('%', 'e', 0)
+command! -nargs=0          AS call AlternateFile('%', 's', 0)
+command! -nargs=0          AV call AlternateFile('%', 'v', 0)
+command! -nargs=0          AT call AlternateFile('%', 't', 0)
+command! -nargs=0 -count=1 AN call AlternateFile('%',  '', <count>)
+command! -nargs=0 -count=1 AP call AlternateFile('%',  '', -<count>)
+command! -nargs=0          AA call AlternateFile('%',  '', 'a')
 
 " vi:se ts=4 sw=4 noet fdm=marker:
