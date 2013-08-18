@@ -232,7 +232,7 @@ function! s:FindAlternateFile(filename, dict)
 endfunction
 
 function! s:FindAllFiles(dir, dirs, name, names, exts, existing,
-                       \ filehash, exthash)
+                       \ filehash, namehash)
 	let files = []
 	for dir in a:dirs
 		let dir = s:ExpandDir(a:dir, dir)
@@ -249,10 +249,11 @@ function! s:FindAllFiles(dir, dirs, name, names, exts, existing,
 			for ext in a:exts
 				let file = root . ext
 				if !has_key(a:filehash, file)
+					let ext = name . '.' . ext
 					if filereadable(file) ||
-					 \ !a:existing && !has_key(a:exthash, ext)
+					 \ !a:existing && !has_key(a:namehash, ext)
 						let a:filehash[file] = 1
-						let a:exthash[ext] = 1
+						let a:namehash[ext] = 1
 						call add(files, file)
 					endif
 				endif
@@ -267,7 +268,7 @@ function! s:FindAllAlternateFiles(filename, dict, existing)
 	let forlist = [ a:filename ]
 	let hash = {}
 	let filehash = {}
-	let exthash = {}
+	let namehash = {}
 	let existing = 1
 	while 1
 		let list = []
@@ -285,7 +286,7 @@ function! s:FindAllAlternateFiles(filename, dict, existing)
 				let dir = fnamemodify(file, ':p:h')
 				let name = fnamemodify(file, ':t:r')
 				let list += s:FindAllFiles(dir, dirs, name, names, exts,
-				          \                existing, filehash, exthash)
+				          \                existing, filehash, namehash)
 			endif
 		endfor
 		if empty(list)
@@ -400,10 +401,10 @@ function! s:GetNextAlternateFile(file, direction)
 	return altlist
 endfunction
 
-function! s:AskAlternateFile(file)
+function! s:AskAlternateFile(file, existing)
 	let buffer = bufnr(a:file)
 	let dict = s:GetAlternateDict(buffer)
-	let altlist = s:FindAllAlternateFiles(a:file, dict, 0)
+	let altlist = s:FindAllAlternateFiles(a:file, dict, a:existing)
 	if empty(altlist)
 		echo 'No alternate files'
 		return ''
@@ -441,7 +442,12 @@ function! AlternateFile(filename, cmd, action)
 			return
 		endif
 	elseif a:action == 'a'
-		let altfile = s:AskAlternateFile(file)
+		let altfile = s:AskAlternateFile(file, 1)
+		if empty(altfile)
+			return
+		endif
+	elseif a:action == 'c'
+		let altfile = s:AskAlternateFile(file, 0)
 		if empty(altfile)
 			return
 		endif
@@ -471,5 +477,6 @@ command! -nargs=0          AT call AlternateFile('%', 't', 0)
 command! -nargs=0 -count=1 AN call AlternateFile('%',  '', <count>)
 command! -nargs=0 -count=1 AP call AlternateFile('%',  '', -<count>)
 command! -nargs=0          AA call AlternateFile('%',  '', 'a')
+command! -nargs=0          AC call AlternateFile('%',  '', 'c')
 
 " vi:se ts=4 sw=4 noet fdm=marker:
