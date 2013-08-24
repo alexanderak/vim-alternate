@@ -5,7 +5,7 @@
 " License:     Vim license
 " ============================================================================
 
-if exists("loaded_alternate")
+if exists("loaded_alternate") && loaded_alternate
 	finish
 endif
 let loaded_alternate = 1
@@ -19,7 +19,7 @@ else
 		let s:incdirs = g:alternate_incdirs
 	else
 		let s:incdirs = [
-		              \   'rel:.',
+		              \   '',
 		              \   'reg:/src/include/',
 		              \   'reg:/src/inc/',
 		              \   'reg:/source/include/',
@@ -32,7 +32,7 @@ else
 		let s:srcdirs = g:alternate_srcdirs
 	else
 		let s:srcdirs = [
-		              \   'rel:.',
+		              \   '',
 		              \   'reg:/include/src/',
 		              \   'reg:/inc/src/',
 		              \   'reg:/include/source/',
@@ -127,7 +127,7 @@ function! s:HasBufferInTab(buffer, tab)
 		if a:buffer == buffers[index]
 			return 1
 		endif
-		let index = index + 1
+		let index += 1
 	endwhile
 	return 0
 endfunction
@@ -138,7 +138,7 @@ function! s:FindTabWithBuffer(buffer, curtab)
 		if s:HasBufferInTab(a:buffer, index)
 			return index
 		endif
-		let index = index + 1
+		let index += 1
 	endwhile
 	let index = a:curtab + 1
 	let size = tabpagenr('$')
@@ -146,20 +146,21 @@ function! s:FindTabWithBuffer(buffer, curtab)
 		if s:HasBufferInTab(a:buffer, index)
 			return index
 		endif
-		let index = index + 1
+		let index += 1
 	endwhile
 	return 0
 endfunction
 
-function! s:ShiftList(list, name, direction)
+function! s:FindtListItem(list, name, shift)
 	let index = match(a:list, a:name)
 	if index != -1
 		let len = len(a:list)
-		let index = (index + a:direction) % len
-		if index != 0 && index != -len
-			call extend(a:list, remove(a:list, 0, index - 1))
+		let index = (index + a:shift) % len
+		if index < 0
+			let index += len
 		endif
 	endif
+	return index
 endfunction
 " }}}
 
@@ -358,6 +359,16 @@ function! s:SwitchFile(buffer, file, cmd)
 	endif
 endfunction
 
+function! s:KeepAlternateFile(altfile, file)
+	let altbuf = bufnr(a:altfile)
+	call setbufvar(altbuf, 'alternate_file', a:file)
+endfunction
+
+function! s:KeepAlternateList(altfile, altlist)
+	let altbuf = bufnr(a:altfile)
+	call setbufvar(altbuf, 'alternate_list', a:altlist)
+endfunction
+
 function! s:GetAlternateDict(buffer)
 	let dict = getbufvar(a:buffer, 'alternate_dict')
 	return empty(dict) ? s:dict : dict
@@ -373,17 +384,7 @@ function! s:GetAlternateFile(file)
 	return altfile
 endfunction
 
-function! s:KeepAlternateFile(altfile, file)
-	let altbuf = bufnr(a:altfile)
-	call setbufvar(altbuf, 'alternate_file', a:file)
-endfunction
-
-function! s:KeepAlternateList(altfile, altlist)
-	let altbuf = bufnr(a:altfile)
-	call setbufvar(altbuf, 'alternate_list', a:altlist)
-endfunction
-
-function! s:GetNextAlternateFile(file, direction)
+function! s:GetAlternateList(file)
 	let buffer = bufnr(a:file)
 	let altlist = getbufvar('alternate_list', buffer)
 	if empty(altlist)
@@ -391,20 +392,20 @@ function! s:GetNextAlternateFile(file, direction)
 		unlet altlist
 		let altlist = s:FindAllAlternateFiles(a:file, dict, 1)
 		for file in altlist
-			let buffer = bufnr(file)
-			if buffer != -1
-				call setbufvar(buffer, 'alternate_list', altlist)
-			endif
+			call s:KeepAlternateList(file, altlist)
 		endfor
 	endif
-	call s:ShiftList(altlist, a:file, a:direction)
 	return altlist
 endfunction
 
 function! s:AskAlternateFile(file, existing)
-	let buffer = bufnr(a:file)
-	let dict = s:GetAlternateDict(buffer)
-	let altlist = s:FindAllAlternateFiles(a:file, dict, a:existing)
+	if a:existing
+		let altlist = s:GetAlternateList(a:file)
+	else
+		let buffer = bufnr(a:file)
+		let dict = s:GetAlternateDict(buffer)
+		let altlist = s:FindAllAlternateFiles(a:file, dict, a:existing)
+	endif
 	if empty(altlist)
 		echo 'No alternate files'
 		return ''
@@ -420,9 +421,9 @@ function! s:AskAlternateFile(file, existing)
 		else
 			let line = (filereadable(file) ? '+' : ' ') . (index + 1) . ': '
 		endif
-		let line .= file
+		let line .= fnamemodify(file, ':~:.')
 		call add(prompt, line)
-		let index = index + 1
+		let index += 1
 	endwhile
 	let index = inputlist(prompt) - 1
 	if index >= 0 && index < size
@@ -452,11 +453,14 @@ function! AlternateFile(filename, cmd, action)
 			return
 		endif
 	else
-		let altlist = []
-		let altlist = s:GetNextAlternateFile(file, a:action)
-		let altfile = empty(altlist) ? '' : altlist[0]
-		if len(altlist) <= 1
+		let altlist = s:GetAlternateList(file)
+		let index = s:FindtListItem(altlist, file, a:action)
+		if index < 0
 			echo 'No alternate file'
+			return
+		endif
+		let altfile = altlist[index]
+		if file == altfile
 			return
 		endif
 	endif
