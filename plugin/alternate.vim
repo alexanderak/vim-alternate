@@ -433,28 +433,42 @@ function! s:AskAlternateFile(file, existing)
 endfunction
 " }}}
 
-function! AlternateFile(filename, cmd, action)
+function! AlternateFile(filename, cmd, action, count)
 	let file = empty(a:filename) ? '%' : a:filename
 	let file = expand(file . ':p')
 	if empty(a:action)
-		let altfile = s:GetAlternateFile(file)
-		if empty(altfile) || file == altfile
-			echo 'No alternate file'
-			return
+		if a:count
+			let altlist = s:GetAlternateList(file)
+			if empty(altlist)
+				echo 'No alternate file'
+				return
+			endif
+			if a:count < 1
+				let altfile = altlist[0]
+			elseif a:count > len(altlist)
+				let altfile = altlist[-1]
+			else
+				let altfile = altlist[a:count - 1]
+			endif
+			if file == altfile
+				return
+			endif
+		else
+			let altfile = s:GetAlternateFile(file)
+			if empty(altfile) || file == altfile
+				echo 'No alternate file'
+				return
+			endif
 		endif
-	elseif a:action == 'a'
-		let altfile = s:AskAlternateFile(file, 1)
+	elseif a:action == 'a' || a:action == 'c'
+		let altfile = s:AskAlternateFile(file, a:action == 'a' ? 1 : 0)
 		if empty(altfile)
 			return
 		endif
-	elseif a:action == 'c'
-		let altfile = s:AskAlternateFile(file, 0)
-		if empty(altfile)
-			return
-		endif
-	else
+	elseif a:action == 'n' || a:action == 'p'
 		let altlist = s:GetAlternateList(file)
-		let index = s:FindtListItem(altlist, file, a:action)
+		let l:count = a:action == 'n' ? a:count : -a:count
+		let index = s:FindtListItem(altlist, file, l:count)
 		if index < 0
 			echo 'No alternate file'
 			return
@@ -463,24 +477,26 @@ function! AlternateFile(filename, cmd, action)
 		if file == altfile
 			return
 		endif
+	else
+		return
 	endif
 	let altbuf = bufnr(altfile)
 	call s:SwitchFile(altbuf, altfile, a:cmd)
 	call s:KeepAlternateFile(altfile, file)
 	call s:KeepAlternateFile(file, altfile)
-	if exists('l:altlist')
+	if altbuf == -1 && exists('l:altlist')
 		call s:KeepAlternateList(altfile, altlist)
 	endif
 endfunction
 
-command! -nargs=0          A  call AlternateFile('%',  '', 0)
-command! -nargs=0          AE call AlternateFile('%', 'e', 0)
-command! -nargs=0          AS call AlternateFile('%', 's', 0)
-command! -nargs=0          AV call AlternateFile('%', 'v', 0)
-command! -nargs=0          AT call AlternateFile('%', 't', 0)
-command! -nargs=0 -count=1 AN call AlternateFile('%',  '', <count>)
-command! -nargs=0 -count=1 AP call AlternateFile('%',  '', -<count>)
-command! -nargs=0          AA call AlternateFile('%',  '', 'a')
-command! -nargs=0          AC call AlternateFile('%',  '', 'c')
+command! -nargs=0 -count=0 A  call AlternateFile('%',  '',  '', <count>)
+command! -nargs=0 -count=0 AE call AlternateFile('%', 'e',  '', <count>)
+command! -nargs=0 -count=0 AS call AlternateFile('%', 's',  '', <count>)
+command! -nargs=0 -count=0 AV call AlternateFile('%', 'v',  '', <count>)
+command! -nargs=0 -count=0 AT call AlternateFile('%', 't',  '', <count>)
+command! -nargs=0 -count=1 AN call AlternateFile('%',  '', 'n', <count>)
+command! -nargs=0 -count=1 AP call AlternateFile('%',  '', 'p', <count>)
+command! -nargs=0          AA call AlternateFile('%',  '', 'a', 0)
+command! -nargs=0          AC call AlternateFile('%',  '', 'c', 0)
 
 " vi:se ts=4 sw=4 noet fdm=marker:
