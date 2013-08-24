@@ -113,7 +113,7 @@ function! s:Substiture(string, pattern)
 	let subend = match(a:pattern, sep, patend + 1)
 	let sub = strpart(a:pattern, patend + 1, subend - patend - 1)
 	let flags = strpart(a:pattern, strlen(a:pattern) - 2)
-	if flags == sep
+	if flags ==# sep
 		let flags = ''
 	endif
 	return substitute(a:string, pat, sub, flags)
@@ -167,13 +167,13 @@ endfunction
 " Core functions {{{
 function! s:ExpandDir(dir, pattern)
 	let prefix = strpart(a:pattern, 0, 4)
-	if prefix == 'reg:'
+	if prefix ==# 'reg:'
 		let pattern = strpart(a:pattern, 4)
 		let dir = s:Substiture(a:dir, pattern)
-		return dir == a:dir ? '' : dir
-	elseif prefix == 'rel:'
+		return dir ==# a:dir ? '' : dir
+	elseif prefix ==# 'rel:'
 		return a:dir . s:slash . strpart(a:pattern, 4)
-	elseif prefix == 'abs:'
+	elseif prefix ==# 'abs:'
 		return strpart(a:pattern, 4)
 	elseif empty(a:pattern)
 		return a:dir
@@ -186,10 +186,10 @@ function! s:ExpandName(name, pattern)
 		return a:name
 	endif
 	let prefix = strpart(a:pattern, 0, 4)
-	if prefix == 'reg:'
+	if prefix ==# 'reg:'
 		let pattern = strpart(a:pattern, 4)
 		let name = s:Substiture(a:name, pattern)
-		return name == a:name ? '' : name
+		return name ==# a:name ? '' : name
 	endif
 	return ''
 endfunction
@@ -328,22 +328,22 @@ function! s:SwitchFile(buffer, file, cmd)
 				endif
 			endif
 		endif
-	elseif a:cmd == 'e'
+	elseif a:cmd ==# 'e'
 		if a:buffer == -1
 			execute 'edit ' . escape(file, ' ')
 		else
 			execute 'buffer ' . file
 		endif
-	elseif a:cmd == 's' || a:cmd == 'v'
+	elseif a:cmd ==# 's' || a:cmd ==# 'v'
 		if a:buffer == -1
-			execute (a:cmd == 'v' ? 'vertical ' : '' ) . 'split ' .
+			execute (a:cmd ==# 'v' ? 'vertical ' : '' ) . 'split ' .
 			       \ escape(file, ' ')
 		elseif s:HasBufferInTab(a:buffer, tabpagenr())
 			execute bufwinnr(a:buffer) . 'wincmd w'
 		else
-			execute (a:cmd == 'v' ? 'vertical ' : '' ) . 'sbuffer ' . a:buffer
+			execute (a:cmd ==# 'v' ? 'vertical ' : '' ) . 'sbuffer ' . a:buffer
 		endif
-	elseif a:cmd == 't'
+	elseif a:cmd ==# 't'
 		if a:buffer == -1
 			execute 'tabedit ' . escape(file, ' ')
 		else
@@ -450,31 +450,31 @@ function! AlternateFile(filename, cmd, action, count)
 			else
 				let altfile = altlist[a:count - 1]
 			endif
-			if file == altfile
+			if file ==# altfile
 				return
 			endif
 		else
 			let altfile = s:GetAlternateFile(file)
-			if empty(altfile) || file == altfile
+			if empty(altfile) || file ==# altfile
 				echo 'No alternate file'
 				return
 			endif
 		endif
-	elseif a:action == 'a' || a:action == 'c'
-		let altfile = s:AskAlternateFile(file, a:action == 'a' ? 1 : 0)
+	elseif a:action ==# 'a' || a:action ==# 'c'
+		let altfile = s:AskAlternateFile(file, a:action ==# 'a' ? 1 : 0)
 		if empty(altfile)
 			return
 		endif
-	elseif a:action == 'n' || a:action == 'p'
+	elseif a:action ==# 'n' || a:action ==# 'p'
 		let altlist = s:GetAlternateList(file)
-		let l:count = a:action == 'n' ? a:count : -a:count
+		let l:count = a:action ==# 'n' ? a:count : -a:count
 		let index = s:FindtListItem(altlist, file, l:count)
 		if index < 0
 			echo 'No alternate file'
 			return
 		endif
 		let altfile = altlist[index]
-		if file == altfile
+		if file ==# altfile
 			return
 		endif
 	else
