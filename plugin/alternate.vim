@@ -19,12 +19,12 @@ else
 		let s:incdirs = g:alternate_incdirs
 	else
 		let s:incdirs = [
-		              \   '',
 		              \   'reg:/src/include/',
 		              \   'reg:/src/inc/',
 		              \   'reg:/source/include/',
 		              \   'rel:../inc',
 		              \   'rel:../include',
+		              \   '',
 		              \ ]
 	endif
 
@@ -32,12 +32,12 @@ else
 		let s:srcdirs = g:alternate_srcdirs
 	else
 		let s:srcdirs = [
-		              \   '',
 		              \   'reg:/include/src/',
 		              \   'reg:/inc/src/',
 		              \   'reg:/include/source/',
 		              \   'rel:../src',
 		              \   'rel:../source',
+		              \   '',
 		              \ ]
 	endif
 	" }}}
@@ -246,15 +246,22 @@ function! s:FindAllFiles(dir, dirs, name, names, exts, existing,
 				continue
 			endif
 			let root = dir . s:slash . name
-			let root = fnamemodify(root, ':p') . '.'
+			let root = fnamemodify(root, ':p')
+			if name != a:name
+				let rootdir = fnamemodify(root, ':h')
+				if !isdirectory(rootdir)
+					continue
+				endif
+			endif
+			let root .= '.'
 			for ext in a:exts
 				let file = root . ext
 				if !has_key(a:filehash, file)
-					let ext = name . '.' . ext
+					let filename = name . '.' . ext
 					if filereadable(file) ||
-					 \ !a:existing && !has_key(a:namehash, ext)
+					 \ !a:existing && !has_key(a:namehash, filename)
 						let a:filehash[file] = 1
-						let a:namehash[ext] = 1
+						let a:namehash[filename] = 1
 						call add(files, file)
 					endif
 				endif
