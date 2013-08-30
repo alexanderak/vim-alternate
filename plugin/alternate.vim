@@ -106,7 +106,7 @@ endif
 " }}}
 
 " Helper functions {{{
-function! s:Substiture(string, pattern)
+function! s:Substitute(string, pattern)
 	let sep = strpart(a:pattern, 0, 1)
 	let patend = match(a:pattern, sep, 1)
 	let pat = strpart(a:pattern, 1, patend - 1)
@@ -169,7 +169,7 @@ function! s:ExpandDir(dir, pattern)
 	let prefix = strpart(a:pattern, 0, 4)
 	if prefix ==# 'reg:'
 		let pattern = strpart(a:pattern, 4)
-		let dir = s:Substiture(a:dir, pattern)
+		let dir = s:Substitute(a:dir, pattern)
 		return dir ==# a:dir ? '' : dir
 	elseif prefix ==# 'rel:'
 		return a:dir . s:slash . strpart(a:pattern, 4)
@@ -188,7 +188,7 @@ function! s:ExpandName(name, pattern)
 	let prefix = strpart(a:pattern, 0, 4)
 	if prefix ==# 'reg:'
 		let pattern = strpart(a:pattern, 4)
-		let name = s:Substiture(a:name, pattern)
+		let name = s:Substitute(a:name, pattern)
 		return name ==# a:name ? '' : name
 	endif
 	return ''
