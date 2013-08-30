@@ -232,7 +232,7 @@ function! s:FindAlternateFile(filename, dict)
 	return altfile
 endfunction
 
-function! s:FindAllFiles(dir, dirs, name, names, exts, existing,
+function! s:FindAllFiles(dir, dirs, name, names, exts, mode,
                        \ filehash, namehash)
 	let files = []
 	for dir in a:dirs
@@ -259,7 +259,8 @@ function! s:FindAllFiles(dir, dirs, name, names, exts, existing,
 				if !has_key(a:filehash, file)
 					let filename = name . '.' . ext
 					if filereadable(file) ||
-					 \ !a:existing && !has_key(a:namehash, filename)
+					 \ a:mode == 2 ||
+					 \ a:mode == 1 && !has_key(a:namehash, filename)
 						let a:filehash[file] = 1
 						let a:namehash[filename] = 1
 						call add(files, file)
@@ -271,13 +272,13 @@ function! s:FindAllFiles(dir, dirs, name, names, exts, existing,
 	return files
 endfunction
 
-function! s:FindAllAlternateFiles(filename, dict, existing)
+function! s:FindAllAlternateFiles(filename, dict, mode)
 	let altlist = []
 	let forlist = [ a:filename ]
 	let hash = {}
 	let filehash = {}
 	let namehash = {}
-	let existing = 1
+	let mode = 0
 	while 1
 		let list = []
 		for file in forlist
@@ -294,12 +295,12 @@ function! s:FindAllAlternateFiles(filename, dict, existing)
 				let dir = fnamemodify(file, ':p:h')
 				let name = fnamemodify(file, ':t:r')
 				let list += s:FindAllFiles(dir, dirs, name, names, exts,
-				          \                existing, filehash, namehash)
+				                         \ mode, filehash, namehash)
 			endif
 		endfor
 		if empty(list)
-			if existing && !a:existing
-				let existing = 0
+			if mode == 0 && a:mode != mode
+				let mode = a:mode
 				let hash = {}
 				if !empty(altlist)
 					let forlist = altlist
@@ -397,7 +398,7 @@ function! s:GetAlternateList(file)
 	if empty(altlist)
 		let dict = s:GetAlternateDict(buffer)
 		unlet altlist
-		let altlist = s:FindAllAlternateFiles(a:file, dict, 1)
+		let altlist = s:FindAllAlternateFiles(a:file, dict, 0)
 		for file in altlist
 			call s:KeepAlternateList(file, altlist)
 		endfor
@@ -405,13 +406,13 @@ function! s:GetAlternateList(file)
 	return altlist
 endfunction
 
-function! s:AskAlternateFile(file, existing)
-	if a:existing
+function! s:AskAlternateFile(file, mode)
+	if a:mode == 0
 		let altlist = s:GetAlternateList(a:file)
 	else
 		let buffer = bufnr(a:file)
 		let dict = s:GetAlternateDict(buffer)
-		let altlist = s:FindAllAlternateFiles(a:file, dict, a:existing)
+		let altlist = s:FindAllAlternateFiles(a:file, dict, a:mode)
 	endif
 	if empty(altlist)
 		echo 'No alternate files'
@@ -445,6 +446,7 @@ function! AlternateFile(cmd, count, ...)
 	let file = expand(file)
 	let file = fnamemodify(file, ':p')
 	let cmd = strpart(a:cmd, 0, 1)
+	let bang = strpart(a:cmd, 2, 1)
 	if cmd ==# 'g'
 		if a:count
 			let altlist = s:GetAlternateList(file)
@@ -470,7 +472,8 @@ function! AlternateFile(cmd, count, ...)
 			endif
 		endif
 	elseif cmd ==# 'a' || cmd ==# 'c'
-		let altfile = s:AskAlternateFile(file, cmd ==# 'a' ? 1 : 0)
+		let mode = cmd ==# 'a' ? 0 : (bang == '!' ? 2 : 1)
+		let altfile = s:AskAlternateFile(file, mode)
 		if empty(altfile)
 			return
 		endif
@@ -499,14 +502,14 @@ function! AlternateFile(cmd, count, ...)
 	endif
 endfunction
 
-command! -nargs=? -complete=file -count=0 A  call AlternateFile('gg', <count>, <f-args>)
-command! -nargs=? -complete=file -count=0 AE call AlternateFile('ge', <count>, <f-args>)
-command! -nargs=? -complete=file -count=0 AS call AlternateFile('gs', <count>, <f-args>)
-command! -nargs=? -complete=file -count=0 AV call AlternateFile('gv', <count>, <f-args>)
-command! -nargs=? -complete=file -count=0 AT call AlternateFile('gt', <count>, <f-args>)
-command! -nargs=? -complete=file -count=1 AN call AlternateFile('ng', <count>, <f-args>)
-command! -nargs=? -complete=file -count=1 AP call AlternateFile('pg', <count>, <f-args>)
-command! -nargs=? -complete=file          AA call AlternateFile('ag',       0, <f-args>)
-command! -nargs=? -complete=file          AC call AlternateFile('cg',       0, <f-args>)
+command! -nargs=? -complete=file -count=0 A  call AlternateFile('gg<bang>', <count>, <f-args>)
+command! -nargs=? -complete=file -count=0 AE call AlternateFile('ge<bang>', <count>, <f-args>)
+command! -nargs=? -complete=file -count=0 AS call AlternateFile('gs<bang>', <count>, <f-args>)
+command! -nargs=? -complete=file -count=0 AV call AlternateFile('gv<bang>', <count>, <f-args>)
+command! -nargs=? -complete=file -count=0 AT call AlternateFile('gt<bang>', <count>, <f-args>)
+command! -nargs=? -complete=file -count=1 AN call AlternateFile('ng<bang>', <count>, <f-args>)
+command! -nargs=? -complete=file -count=1 AP call AlternateFile('pg<bang>', <count>, <f-args>)
+command! -nargs=? -complete=file          AA call AlternateFile('ag<bang>',       0, <f-args>)
+command! -nargs=? -complete=file -bang    AC call AlternateFile('cg<bang>',       0, <f-args>)
 
 " vi:se ts=4 sw=4 noet fdm=marker:
