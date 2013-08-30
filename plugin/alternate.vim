@@ -440,9 +440,10 @@ function! s:AskAlternateFile(file, existing)
 endfunction
 " }}}
 
-function! AlternateFile(filename, cmd, action, count)
-	let file = empty(a:filename) ? '%' : a:filename
-	let file = expand(file . ':p')
+function! AlternateFile(cmd, action, count, ...)
+	let file = a:0 ? a:1 : '%'
+	let file = expand(file)
+	let file = fnamemodify(file, ':p')
 	if empty(a:action)
 		if a:count
 			let altlist = s:GetAlternateList(file)
@@ -496,14 +497,14 @@ function! AlternateFile(filename, cmd, action, count)
 	endif
 endfunction
 
-command! -nargs=0 -count=0 A  call AlternateFile('%',  '',  '', <count>)
-command! -nargs=0 -count=0 AE call AlternateFile('%', 'e',  '', <count>)
-command! -nargs=0 -count=0 AS call AlternateFile('%', 's',  '', <count>)
-command! -nargs=0 -count=0 AV call AlternateFile('%', 'v',  '', <count>)
-command! -nargs=0 -count=0 AT call AlternateFile('%', 't',  '', <count>)
-command! -nargs=0 -count=1 AN call AlternateFile('%',  '', 'n', <count>)
-command! -nargs=0 -count=1 AP call AlternateFile('%',  '', 'p', <count>)
-command! -nargs=0          AA call AlternateFile('%',  '', 'a', 0)
-command! -nargs=0          AC call AlternateFile('%',  '', 'c', 0)
+command! -nargs=? -complete=file -count=0 A  call AlternateFile( '',  '', <count>, <f-args>)
+command! -nargs=? -complete=file -count=0 AE call AlternateFile('e',  '', <count>, <f-args>)
+command! -nargs=? -complete=file -count=0 AS call AlternateFile('s',  '', <count>, <f-args>)
+command! -nargs=? -complete=file -count=0 AV call AlternateFile('v',  '', <count>, <f-args>)
+command! -nargs=? -complete=file -count=0 AT call AlternateFile('t',  '', <count>, <f-args>)
+command! -nargs=? -complete=file -count=1 AN call AlternateFile( '', 'n', <count>, <f-args>)
+command! -nargs=? -complete=file -count=1 AP call AlternateFile( '', 'p', <count>, <f-args>)
+command! -nargs=? -complete=file          AA call AlternateFile( '', 'a',       0, <f-args>)
+command! -nargs=? -complete=file          AC call AlternateFile( '', 'c',       0, <f-args>)
 
 " vi:se ts=4 sw=4 noet fdm=marker:
