@@ -319,7 +319,7 @@ endfunction
 " Interface functions {{{
 function! s:SwitchFile(buffer, file, cmd)
 	let file = fnamemodify(a:file, ':~:.')
-	if empty(a:cmd)
+	if a:cmd ==# 'g'
 		if a:buffer == -1
 			execute 'edit ' . escape(file, ' ')
 		else
@@ -440,11 +440,12 @@ function! s:AskAlternateFile(file, existing)
 endfunction
 " }}}
 
-function! AlternateFile(cmd, action, count, ...)
+function! AlternateFile(cmd, count, ...)
 	let file = a:0 ? a:1 : '%'
 	let file = expand(file)
 	let file = fnamemodify(file, ':p')
-	if empty(a:action)
+	let cmd = strpart(a:cmd, 0, 1)
+	if cmd ==# 'g'
 		if a:count
 			let altlist = s:GetAlternateList(file)
 			if empty(altlist)
@@ -468,14 +469,14 @@ function! AlternateFile(cmd, action, count, ...)
 				return
 			endif
 		endif
-	elseif a:action ==# 'a' || a:action ==# 'c'
-		let altfile = s:AskAlternateFile(file, a:action ==# 'a' ? 1 : 0)
+	elseif cmd ==# 'a' || cmd ==# 'c'
+		let altfile = s:AskAlternateFile(file, cmd ==# 'a' ? 1 : 0)
 		if empty(altfile)
 			return
 		endif
-	elseif a:action ==# 'n' || a:action ==# 'p'
+	elseif cmd ==# 'n' || cmd ==# 'p'
 		let altlist = s:GetAlternateList(file)
-		let l:count = a:action ==# 'n' ? a:count : -a:count
+		let l:count = cmd ==# 'n' ? a:count : -a:count
 		let index = s:FindtListItem(altlist, file, l:count)
 		if index < 0
 			echo 'No alternate file'
@@ -489,7 +490,8 @@ function! AlternateFile(cmd, action, count, ...)
 		return
 	endif
 	let altbuf = bufnr(altfile)
-	call s:SwitchFile(altbuf, altfile, a:cmd)
+	let cmd = strpart(a:cmd, 1, 1)
+	call s:SwitchFile(altbuf, altfile, cmd)
 	call s:KeepAlternateFile(altfile, file)
 	call s:KeepAlternateFile(file, altfile)
 	if altbuf == -1 && exists('l:altlist')
@@ -497,14 +499,14 @@ function! AlternateFile(cmd, action, count, ...)
 	endif
 endfunction
 
-command! -nargs=? -complete=file -count=0 A  call AlternateFile( '',  '', <count>, <f-args>)
-command! -nargs=? -complete=file -count=0 AE call AlternateFile('e',  '', <count>, <f-args>)
-command! -nargs=? -complete=file -count=0 AS call AlternateFile('s',  '', <count>, <f-args>)
-command! -nargs=? -complete=file -count=0 AV call AlternateFile('v',  '', <count>, <f-args>)
-command! -nargs=? -complete=file -count=0 AT call AlternateFile('t',  '', <count>, <f-args>)
-command! -nargs=? -complete=file -count=1 AN call AlternateFile( '', 'n', <count>, <f-args>)
-command! -nargs=? -complete=file -count=1 AP call AlternateFile( '', 'p', <count>, <f-args>)
-command! -nargs=? -complete=file          AA call AlternateFile( '', 'a',       0, <f-args>)
-command! -nargs=? -complete=file          AC call AlternateFile( '', 'c',       0, <f-args>)
+command! -nargs=? -complete=file -count=0 A  call AlternateFile('gg', <count>, <f-args>)
+command! -nargs=? -complete=file -count=0 AE call AlternateFile('ge', <count>, <f-args>)
+command! -nargs=? -complete=file -count=0 AS call AlternateFile('gs', <count>, <f-args>)
+command! -nargs=? -complete=file -count=0 AV call AlternateFile('gv', <count>, <f-args>)
+command! -nargs=? -complete=file -count=0 AT call AlternateFile('gt', <count>, <f-args>)
+command! -nargs=? -complete=file -count=1 AN call AlternateFile('ng', <count>, <f-args>)
+command! -nargs=? -complete=file -count=1 AP call AlternateFile('pg', <count>, <f-args>)
+command! -nargs=? -complete=file          AA call AlternateFile('ag',       0, <f-args>)
+command! -nargs=? -complete=file          AC call AlternateFile('cg',       0, <f-args>)
 
 " vi:se ts=4 sw=4 noet fdm=marker:
