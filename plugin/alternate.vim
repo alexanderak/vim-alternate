@@ -198,23 +198,31 @@ function! s:ExpandName(name, pattern)
 	return s:ExpandRoot(a:name, a:pattern)
 endfunction
 
+function! s:FindExistingFile(root, exts)
+	let dir = fnamemodify(a:root, ':h')
+	if !isdirectory(dir)
+		return
+	endif
+	let root = a:root . '.'
+	for ext in a:exts
+		let file = root . ext
+		if filereadable(file)
+			return fnamemodify(file, ':p')
+		endif
+	endfor
+	return ''
+endfunction
+
 function! s:FindExistingFile1(root, roots, exts)
 	for root in a:roots
 		let root = s:ExpandRoot(a:root, root)
 		if empty(root)
 			continue
 		endif
-		let dir = fnamemodify(root, ':h')
-		if !isdirectory(dir)
-			continue
+		let file = s:FindExistingFile(root, a:exts)
+		if !empty(file)
+			return file
 		endif
-		let root .= '.'
-		for ext in a:exts
-			let file = root . ext
-			if filereadable(file)
-				return fnamemodify(file, ':p')
-			endif
-		endfor
 	endfor
 	return ''
 endfunction
@@ -230,13 +238,11 @@ function! s:FindExistingFile2(dir, dirs, name, names, exts)
 			if empty(name)
 				continue
 			endif
-			let root = dir . s:slash . name . '.'
-			for ext in a:exts
-				let file = root . ext
-				if filereadable(file)
-					return fnamemodify(file, ':p')
-				endif
-			endfor
+			let root = dir . s:slash . name
+			let file = s:FindExistingFile(root, a:exts)
+			if !empty(file)
+				return file
+			endif
 		endfor
 	endfor
 	return ''
@@ -265,6 +271,28 @@ function! s:FindAlternateFile(filename, dict)
 	return altfile
 endfunction
 
+function! s:FindAllFiles(root, exts, mode, filehash, namehash, files)
+	let dir = fnamemodify(a:root, ':h')
+	if !isdirectory(dir)
+		return
+	endif
+	let root = a:root . '.'
+	let name = fnamemodify(root, ':t')
+	for ext in a:exts
+		let file = root . ext
+		if !has_key(a:filehash, file)
+			let filename = name . ext
+			if filereadable(file) ||
+			 \ a:mode == 2 ||
+			 \ a:mode == 1 && !has_key(a:namehash, filename)
+				let a:filehash[file] = 1
+				let a:namehash[filename] = 1
+				call add(a:files, file)
+			endif
+		endif
+	endfor
+endfunction
+
 function! s:FindAllFiles1(root, roots, exts, mode, filehash, namehash)
 	let files = []
 	for root in a:roots
@@ -272,24 +300,8 @@ function! s:FindAllFiles1(root, roots, exts, mode, filehash, namehash)
 		if empty(root)
 			continue
 		endif
-		let dir = fnamemodify(root, ':h')
-		if !isdirectory(dir)
-			continue
-		endif
-		let root .= '.'
-		for ext in a:exts
-			let file = root . ext
-			if !has_key(a:filehash, file)
-				let filename = fnamemodify(file, ':t')
-				if filereadable(file) ||
-				 \ a:mode == 2 ||
-				 \ a:mode == 1 && !has_key(a:namehash, filename)
-					let a:filehash[file] = 1
-					let a:namehash[filename] = 1
-					call add(files, file)
-				endif
-			endif
-		endfor
+		call s:FindAllFiles(root, a:exts, a:mode,
+		                  \ a:filehash, a:namehash, files)
 	endfor
 	return files
 endfunction
@@ -309,26 +321,8 @@ function! s:FindAllFiles2(dir, dirs, name, names, exts, mode,
 			endif
 			let root = dir . s:slash . name
 			let root = fnamemodify(root, ':p')
-			if name != a:name
-				let rootdir = fnamemodify(root, ':h')
-				if !isdirectory(rootdir)
-					continue
-				endif
-			endif
-			let root .= '.'
-			for ext in a:exts
-				let file = root . ext
-				if !has_key(a:filehash, file)
-					let filename = fnamemodify(file, ':t')
-					if filereadable(file) ||
-					 \ a:mode == 2 ||
-					 \ a:mode == 1 && !has_key(a:namehash, filename)
-						let a:filehash[file] = 1
-						let a:namehash[filename] = 1
-						call add(files, file)
-					endif
-				endif
-			endfor
+			call s:FindAllFiles(root, a:exts, a:mode,
+			                  \ a:filehash, a:namehash, files)
 		endfor
 	endfor
 	return files
