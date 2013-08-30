@@ -73,7 +73,7 @@ else
 	let s:dict['mm']  = [ [ 'h'                   ], s:incdirs, s:incnames ]
 	let s:dict['C']   = [ [ 'H'                   ], s:incdirs, s:incnames ]
 	" }}}
-	
+
 	" Extensions {{{
 	if exists('g:alternate_incexts')
 		for [s:key, s:value] in items(g:alternate_incexts)
@@ -89,7 +89,7 @@ else
 		unlet s:key s:value
 	endif
 	" }}}
-	
+
 	" Extend dictionary {{{
 	if exists('g:alternate_extenddict')
 		call extend(s:dict, g:alternate_extenddict)
@@ -165,6 +165,19 @@ endfunction
 " }}}
 
 " Core functions {{{
+function! s:ExpandRoot(root, pattern)
+	if empty(a:pattern)
+		return a:root
+	endif
+	let prefix = strpart(a:pattern, 0, 4)
+	if prefix ==# 'reg:'
+		let pattern = strpart(a:pattern, 4)
+		let root = s:Substitute(a:root, pattern)
+		return root ==# a:root ? '' : root
+	endif
+	return ''
+endfunction
+
 function! s:ExpandDir(dir, pattern)
 	let prefix = strpart(a:pattern, 0, 4)
 	if prefix ==# 'reg:'
@@ -182,19 +195,31 @@ function! s:ExpandDir(dir, pattern)
 endfunction
 
 function! s:ExpandName(name, pattern)
-	if empty(a:pattern)
-		return a:name
-	endif
-	let prefix = strpart(a:pattern, 0, 4)
-	if prefix ==# 'reg:'
-		let pattern = strpart(a:pattern, 4)
-		let name = s:Substitute(a:name, pattern)
-		return name ==# a:name ? '' : name
-	endif
+	return s:ExpandRoot(a:name, a:pattern)
+endfunction
+
+function! s:FindExistingFile1(root, roots, exts)
+	for root in a:roots
+		let root = s:ExpandRoot(a:root, root)
+		if empty(root)
+			continue
+		endif
+		let dir = fnamemodify(root, ':h')
+		if !isdirectory(dir)
+			continue
+		endif
+		let root .= '.'
+		for ext in a:exts
+			let file = root . ext
+			if filereadable(file)
+				return fnamemodify(file, ':p')
+			endif
+		endfor
+	endfor
 	return ''
 endfunction
 
-function! s:FindExistingFile(dir, dirs, name, names, exts)
+function! s:FindExistingFile2(dir, dirs, name, names, exts)
 	for dir in a:dirs
 		let dir = s:ExpandDir(a:dir, dir)
 		if !isdirectory(dir)
@@ -222,18 +247,55 @@ function! s:FindAlternateFile(filename, dict)
 	let ext = fnamemodify(a:filename, ':e')
 	if has_key(a:dict, ext)
 		let patterns = a:dict[ext]
-		let exts = patterns[0]
-		let dirs = patterns[1]
-		let names = patterns[2]
-		let dir = fnamemodify(a:filename, ':p:h')
-		let name = fnamemodify(a:filename, ':t:r')
-		let altfile = s:FindExistingFile(dir, dirs, name, names, exts)
+		let len = len(patterns)
+		if len == 2
+			let exts = patterns[0]
+			let roots = patterns[1]
+			let root = fnamemodify(a:filename, ':p:r')
+			let altfile = s:FindExistingFile1(root, roots, exts)
+		elseif len == 3
+			let exts = patterns[0]
+			let dirs = patterns[1]
+			let names = patterns[2]
+			let dir = fnamemodify(a:filename, ':p:h')
+			let name = fnamemodify(a:filename, ':t:r')
+			let altfile = s:FindExistingFile2(dir, dirs, name, names, exts)
+		endif
 	endif
 	return altfile
 endfunction
 
-function! s:FindAllFiles(dir, dirs, name, names, exts, mode,
-                       \ filehash, namehash)
+function! s:FindAllFiles1(root, roots, exts, mode, filehash, namehash)
+	let files = []
+	for root in a:roots
+		let root = s:ExpandRoot(a:root, root)
+		if empty(root)
+			continue
+		endif
+		let dir = fnamemodify(root, ':h')
+		if !isdirectory(dir)
+			continue
+		endif
+		let root .= '.'
+		for ext in a:exts
+			let file = root . ext
+			if !has_key(a:filehash, file)
+				let filename = fnamemodify(file, ':t')
+				if filereadable(file) ||
+				 \ a:mode == 2 ||
+				 \ a:mode == 1 && !has_key(a:namehash, filename)
+					let a:filehash[file] = 1
+					let a:namehash[filename] = 1
+					call add(files, file)
+				endif
+			endif
+		endfor
+	endfor
+	return files
+endfunction
+
+function! s:FindAllFiles2(dir, dirs, name, names, exts, mode,
+                        \ filehash, namehash)
 	let files = []
 	for dir in a:dirs
 		let dir = s:ExpandDir(a:dir, dir)
@@ -257,7 +319,7 @@ function! s:FindAllFiles(dir, dirs, name, names, exts, mode,
 			for ext in a:exts
 				let file = root . ext
 				if !has_key(a:filehash, file)
-					let filename = name . '.' . ext
+					let filename = fnamemodify(file, ':t')
 					if filereadable(file) ||
 					 \ a:mode == 2 ||
 					 \ a:mode == 1 && !has_key(a:namehash, filename)
@@ -289,13 +351,22 @@ function! s:FindAllAlternateFiles(filename, dict, mode)
 			let ext = fnamemodify(file, ':e')
 			if has_key(a:dict, ext)
 				let patterns = a:dict[ext]
-				let exts = patterns[0]
-				let dirs = patterns[1]
-				let names = patterns[2]
-				let dir = fnamemodify(file, ':p:h')
-				let name = fnamemodify(file, ':t:r')
-				let list += s:FindAllFiles(dir, dirs, name, names, exts,
-				                         \ mode, filehash, namehash)
+				let len = len(patterns)
+				if len == 2
+					let exts = patterns[0]
+					let roots = patterns[1]
+					let root = fnamemodify(a:filename, ':p:r')
+					let list += s:FindAllFiles1(root, roots, exts,
+					                          \ mode, filehash, namehash)
+				elseif len == 3
+					let exts = patterns[0]
+					let dirs = patterns[1]
+					let names = patterns[2]
+					let dir = fnamemodify(file, ':p:h')
+					let name = fnamemodify(file, ':t:r')
+					let list += s:FindAllFiles2(dir, dirs, name, names, exts,
+					                          \ mode, filehash, namehash)
+				endif
 			endif
 		endfor
 		if empty(list)
