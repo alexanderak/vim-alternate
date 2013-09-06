@@ -95,6 +95,8 @@ else
 		call extend(s:dict, g:alternate_extenddict)
 	endif
 	" }}}
+
+	unlet s:incdirs s:srcdirs s:incnames s:srcnames
 endif
 
 if exists('g:alternate_slash')
