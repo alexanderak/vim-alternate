@@ -476,7 +476,7 @@ endfunction
 " Interface functions {{{
 function! s:SwitchFile(buffer, file, cmd)
 	let file = fnamemodify(a:file, ':~:.')
-	if a:cmd ==# 'g'
+	if a:cmd[0] ==# 'g'
 		if a:buffer == -1
 			execute 'edit ' . escape(file, ' ')
 		else
@@ -492,23 +492,25 @@ function! s:SwitchFile(buffer, file, cmd)
 				endif
 			endif
 		endif
-	elseif a:cmd ==# 'e'
+	elseif a:cmd[0] ==# 'e'
 		if a:buffer == -1
 			execute 'edit ' . escape(file, ' ')
 		else
 			execute 'buffer ' . file
 		endif
-	elseif a:cmd ==# 's' || a:cmd ==# 'v'
+	elseif a:cmd[0] ==# 's' || a:cmd[0] ==# 'v'
 		if a:buffer == -1
-			execute (a:cmd ==# 'v' ? 'vertical ' : '' ) . 'split ' .
+			execute (a:cmd[0] ==# 'v' ? 'vertical ' : '' ) . 'split ' .
 			       \ escape(file, ' ')
-		elseif s:HasBufferInTab(a:buffer, tabpagenr())
+		elseif a:cmd[1] != '!' && s:HasBufferInTab(a:buffer, tabpagenr())
 			execute bufwinnr(a:buffer) . 'wincmd w'
 		else
-			execute (a:cmd ==# 'v' ? 'vertical ' : '' ) . 'sbuffer ' . a:buffer
+			execute (a:cmd[0] ==# 'v' ? 'vertical ' : '' ) . 'sbuffer ' . a:buffer
 		endif
-	elseif a:cmd ==# 't'
+	elseif a:cmd[0] ==# 't'
 		if a:buffer == -1
+			execute 'tabedit ' . escape(file, ' ')
+		elseif a:cmd[1] == '!'
 			execute 'tabedit ' . escape(file, ' ')
 		else
 			let curtab = tabpagenr()
@@ -597,60 +599,36 @@ function! s:AskAlternateFile(file, mode)
 endfunction
 " }}}
 
-function! AlternateFile(cmd, count, ...)
-	let file = a:0 ? a:1 : '%'
-	let file = expand(file)
+function! alternate#switch(file, count, action)
+	let file = expand(a:file)
 	let file = fnamemodify(file, ':p')
-	let cmd = strpart(a:cmd, 0, 1)
-	let bang = strpart(a:cmd, 2, 1)
-	if cmd ==# 'g'
-		if a:count
-			let altlist = s:GetAlternateList(file)
-			if empty(altlist)
-				echo 'No alternate file'
-				return
-			endif
-			if a:count < 1
-				let altfile = altlist[0]
-			elseif a:count > len(altlist)
-				let altfile = altlist[-1]
-			else
-				let altfile = altlist[a:count - 1]
-			endif
-			if file ==# altfile
-				return
-			endif
-		else
-			let altfile = s:GetAlternateFile(file)
-			if empty(altfile) || file ==# altfile
-				echo 'No alternate file'
-				return
-			endif
-		endif
-	elseif cmd ==# 'a' || cmd ==# 'c'
-		let mode = cmd ==# 'a' ? 0 : (bang == '!' ? 2 : 1)
-		let altfile = s:AskAlternateFile(file, mode)
-		if empty(altfile)
-			return
-		endif
-	elseif cmd ==# 'n' || cmd ==# 'p'
+
+	if a:count
 		let altlist = s:GetAlternateList(file)
-		let l:count = cmd ==# 'n' ? a:count : -a:count
-		let index = s:FindtListItem(altlist, file, l:count)
-		if index < 0
+		if empty(altlist)
 			echo 'No alternate file'
 			return
 		endif
-		let altfile = altlist[index]
+		if a:count < 1
+			let altfile = altlist[0]
+		elseif a:count > len(altlist)
+			let altfile = altlist[-1]
+		else
+			let altfile = altlist[a:count - 1]
+		endif
 		if file ==# altfile
 			return
 		endif
 	else
-		return
+		let altfile = s:GetAlternateFile(file)
+		if empty(altfile) || file ==# altfile
+			echo 'No alternate file'
+			return
+		endif
 	endif
+
 	let altbuf = bufnr(altfile)
-	let cmd = strpart(a:cmd, 1, 1)
-	call s:SwitchFile(altbuf, altfile, cmd)
+	call s:SwitchFile(altbuf, altfile, a:action)
 	call s:KeepAlternateFile(altfile, file)
 	call s:KeepAlternateFile(file, altfile)
 	if altbuf == -1 && exists('l:altlist')
@@ -658,14 +636,46 @@ function! AlternateFile(cmd, count, ...)
 	endif
 endfunction
 
-command! -nargs=? -complete=file -count=0 A  call AlternateFile('gg<bang>', <count>, <f-args>)
-command! -nargs=? -complete=file -count=0 AE call AlternateFile('ge<bang>', <count>, <f-args>)
-command! -nargs=? -complete=file -count=0 AS call AlternateFile('gs<bang>', <count>, <f-args>)
-command! -nargs=? -complete=file -count=0 AV call AlternateFile('gv<bang>', <count>, <f-args>)
-command! -nargs=? -complete=file -count=0 AT call AlternateFile('gt<bang>', <count>, <f-args>)
-command! -nargs=? -complete=file -count=1 AN call AlternateFile('ng<bang>', <count>, <f-args>)
-command! -nargs=? -complete=file -count=1 AP call AlternateFile('pg<bang>', <count>, <f-args>)
-command! -nargs=? -complete=file          AA call AlternateFile('ag<bang>',       0, <f-args>)
-command! -nargs=? -complete=file -bang    AC call AlternateFile('cg<bang>',       0, <f-args>)
+function! alternate#next(file, count, action)
+	let file = expand(a:file)
+	let file = fnamemodify(file, ':p')
+
+	let altlist = s:GetAlternateList(file)
+	let index = s:FindtListItem(altlist, file, a:count)
+	if index < 0
+		echo 'No alternate file'
+		return
+	endif
+	let altfile = altlist[index]
+	if file ==# altfile
+		return
+	endif
+
+	let altbuf = bufnr(altfile)
+	call s:SwitchFile(altbuf, altfile, a:action)
+	call s:KeepAlternateFile(altfile, file)
+	call s:KeepAlternateFile(file, altfile)
+	if altbuf == -1 && exists('l:altlist')
+		call s:KeepAlternateList(altfile, altlist)
+	endif
+endfunction
+
+function! alternate#list(file, action, mode)
+	let file = expand(a:file)
+	let file = fnamemodify(file, ':p')
+
+	let altfile = s:AskAlternateFile(file, a:mode)
+	if empty(altfile)
+		return
+	endif
+
+	let altbuf = bufnr(altfile)
+	call s:SwitchFile(altbuf, altfile, a:action)
+	call s:KeepAlternateFile(altfile, file)
+	call s:KeepAlternateFile(file, altfile)
+	if altbuf == -1 && exists('l:altlist')
+		call s:KeepAlternateList(altfile, altlist)
+	endif
+endfunction
 
 " vim:ts=4 sw=4 noet fdm=marker:
