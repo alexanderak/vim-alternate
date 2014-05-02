@@ -22,8 +22,9 @@ else
 		              \   'reg:/src/include/',
 		              \   'reg:/src/inc/',
 		              \   'reg:/source/include/',
-		              \   'rel:../inc',
-		              \   'rel:../include',
+		              \   'gre:#.*\zs\<src\>.*#include**#',
+		              \   'gre:#.*\zs\<src\>.*#inc**#',
+		              \   'gre:#.*\zs\<source\>.*#include**#',
 		              \   '',
 		              \ ]
 	endif
@@ -35,8 +36,9 @@ else
 		              \   'reg:/include/src/',
 		              \   'reg:/inc/src/',
 		              \   'reg:/include/source/',
-		              \   'rel:../src',
-		              \   'rel:../source',
+		              \   'gre:#.*\zs\<include\>.*#src**#',
+		              \   'gre:#.*\zs\<inc\>.*#src**#',
+		              \   'gre:#.*\zs\<include\>.*#source**#',
 		              \   '',
 		              \ ]
 	endif
@@ -98,13 +100,6 @@ else
 
 	unlet s:incdirs s:srcdirs s:incnames s:srcnames
 endif
-
-if exists('g:alternate_slash')
-	let s:slash = g:alternate_slash
-else
-	let s:slash = &ssl == 0 &&
-	            \ (has('win16') || has('win32') || has('win64')) ? '\' : '/'
-endif
 " }}}
 
 " Helper functions {{{
@@ -154,7 +149,7 @@ function! s:FindTabWithBuffer(buffer, curtab)
 endfunction
 
 function! s:FindtListItem(list, name, shift)
-	let index = match(a:list, a:name)
+	let index = index(a:list, a:name)
 	if index != -1
 		let len = len(a:list)
 		let index = (index + a:shift) % len
@@ -163,6 +158,14 @@ function! s:FindtListItem(list, name, shift)
 		endif
 	endif
 	return index
+endfunction
+
+function! s:ExtsToSuffixes(exts)
+	let suffixes = join(a:exts, ',.')
+	if !empty(suffixes)
+		let suffixes = '.' . suffixes
+	endif
+	return suffixes
 endfunction
 " }}}
 
@@ -182,12 +185,15 @@ endfunction
 
 function! s:ExpandDir(dir, pattern)
 	let prefix = strpart(a:pattern, 0, 4)
-	if prefix ==# 'reg:'
+	if prefix ==# 'reg:' || prefix ==# 'gre:'
 		let pattern = strpart(a:pattern, 4)
 		let dir = s:Substitute(a:dir, pattern)
 		return dir ==# a:dir ? '' : dir
 	elseif prefix ==# 'rel:'
-		return a:dir . s:slash . strpart(a:pattern, 4)
+		let dir = a:dir
+		let dir .= exists('+shellslash') && !&shellslash ? '\' : '/'
+		let dir .= strpart(a:pattern, 4)
+		return dir
 	elseif prefix ==# 'abs:'
 		return strpart(a:pattern, 4)
 	elseif empty(a:pattern)
@@ -215,6 +221,28 @@ function! s:FindExistingFile(root, exts)
 	return ''
 endfunction
 
+function! s:FindGlob(dir, name, names, exts)
+	try
+		let save_sua = &suffixesadd
+		let &suffixesadd = ''
+		for name in a:names
+			let name = s:ExpandName(a:name, name)
+			if empty(name)
+				continue
+			endif
+			for ext in a:exts
+				let file = findfile(name . '.' . ext, a:dir)
+				if !empty(file)
+					return fnamemodify(file, ':p')
+				endif
+			endfor
+		endfor
+	finally
+		let &suffixesadd = save_sua
+	endtry
+	return ''
+endfunction
+
 function! s:FindExistingFile1(root, roots, exts)
 	for root in a:roots
 		let root = s:ExpandRoot(a:root, root)
@@ -231,21 +259,33 @@ endfunction
 
 function! s:FindExistingFile2(dir, dirs, name, names, exts)
 	for dir in a:dirs
-		let dir = s:ExpandDir(a:dir, dir)
-		if !isdirectory(dir)
-			continue
-		endif
-		for name in a:names
-			let name = s:ExpandName(a:name, name)
-			if empty(name)
+		if dir[0] ==# 'g'
+			let dir = s:ExpandDir(a:dir, dir)
+			if empty(dir)
 				continue
 			endif
-			let root = dir . s:slash . name
-			let file = s:FindExistingFile(root, a:exts)
+			let file = s:FindGlob(dir, a:name, a:names, a:exts)
 			if !empty(file)
 				return file
 			endif
-		endfor
+		else
+			let dir = s:ExpandDir(a:dir, dir)
+			if !isdirectory(dir)
+				continue
+			endif
+			let dir = fnamemodify(dir, ':p')
+			for name in a:names
+				let name = s:ExpandName(a:name, name)
+				if empty(name)
+					continue
+				endif
+				let root = dir . name
+				let file = s:FindExistingFile(root, a:exts)
+				if !empty(file)
+					return file
+				endif
+			endfor
+		endif
 	endfor
 	return ''
 endfunction
@@ -284,15 +324,54 @@ function! s:FindAllFiles(root, exts, mode, filehash, namehash, files)
 		let file = root . ext
 		if !has_key(a:filehash, file)
 			let filename = name . ext
-			if filereadable(file) ||
-			 \ a:mode == 2 ||
-			 \ a:mode == 1 && !has_key(a:namehash, filename)
+			if a:mode == 2 ||
+			 \ (a:mode == 1 && !has_key(a:namehash, filename)) ||
+			 \ filereadable(file)
 				let a:filehash[file] = 1
 				let a:namehash[filename] = 1
 				call add(a:files, file)
 			endif
 		endif
 	endfor
+endfunction
+
+function! s:FindAllGlob(dir, name, names, exts,
+                      \ mode, filehash, namehash, globhash, files)
+	try
+		let save_sua = &suffixesadd
+		let &suffixesadd = ''
+		for name in a:names
+			let name = s:ExpandName(a:name, name)
+			if empty(name)
+				continue
+			endif
+			for ext in a:exts
+				let filename = name . '.' . ext
+
+				if !has_key(a:globhash, a:dir)
+					let a:globhash[a:dir] = [ filename  ]
+				elseif index(a:globhash[a:dir], filename) == -1
+					call add(a:globhash[a:dir], filename)
+				else
+					continue
+				endif
+
+				let files = findfile(filename, a:dir, -1)
+				for file in files
+					let file = fnamemodify(file, ':p')
+					if !has_key(a:filehash, file)
+						let filename = fnamemodify(file, ':t')
+						let a:filehash[file] = 1
+						let a:namehash[filename] = 1
+						call add(a:files, file)
+					endif
+				endfor
+			endfor
+		endfor
+	finally
+		let &suffixesadd = save_sua
+	endtry
+	return ''
 endfunction
 
 function! s:FindAllFiles1(root, roots, exts, mode, filehash, namehash)
@@ -309,23 +388,32 @@ function! s:FindAllFiles1(root, roots, exts, mode, filehash, namehash)
 endfunction
 
 function! s:FindAllFiles2(dir, dirs, name, names, exts, mode,
-                        \ filehash, namehash)
+                        \ filehash, namehash, globhash)
 	let files = []
 	for dir in a:dirs
-		let dir = s:ExpandDir(a:dir, dir)
-		if !isdirectory(dir)
-			continue
-		endif
-		for name in a:names
-			let name = s:ExpandName(a:name, name)
-			if empty(name)
+		if dir[0] ==# 'g'
+			let dir = s:ExpandDir(a:dir, dir)
+			if empty(dir)
 				continue
 			endif
-			let root = dir . s:slash . name
-			let root = fnamemodify(root, ':p')
-			call s:FindAllFiles(root, a:exts, a:mode,
-			                  \ a:filehash, a:namehash, files)
-		endfor
+			call s:FindAllGlob(dir, a:name, a:names, a:exts,
+			                 \ a:mode, a:filehash, a:namehash, a:globhash, files)
+		else
+			let dir = s:ExpandDir(a:dir, dir)
+			if !isdirectory(dir)
+				continue
+			endif
+			let dir = fnamemodify(dir, ':p')
+			for name in a:names
+				let name = s:ExpandName(a:name, name)
+				if empty(name)
+					continue
+				endif
+				let root = dir . name
+				call s:FindAllFiles(root, a:exts, a:mode,
+				                  \ a:filehash, a:namehash, files)
+			endfor
+		endif
 	endfor
 	return files
 endfunction
@@ -336,6 +424,7 @@ function! s:FindAllAlternateFiles(filename, dict, mode)
 	let hash = {}
 	let filehash = {}
 	let namehash = {}
+	let globhash = {}
 	let mode = 0
 	while 1
 		let list = []
@@ -361,7 +450,7 @@ function! s:FindAllAlternateFiles(filename, dict, mode)
 					let dir = fnamemodify(file, ':p:h')
 					let name = fnamemodify(file, ':t:r')
 					let list += s:FindAllFiles2(dir, dirs, name, names, exts,
-					                          \ mode, filehash, namehash)
+					                          \ mode, filehash, namehash, globhash)
 				endif
 			endif
 		endfor
@@ -461,7 +550,7 @@ endfunction
 
 function! s:GetAlternateList(file)
 	let buffer = bufnr(a:file)
-	let altlist = getbufvar('alternate_list', buffer)
+	let altlist = getbufvar(buffer, 'alternate_list')
 	if empty(altlist)
 		let dict = s:GetAlternateDict(buffer)
 		unlet altlist
@@ -487,7 +576,7 @@ function! s:AskAlternateFile(file, mode)
 	endif
 	let prompt = [ 'Select file:' ]
 	let index = 0
-	let current = match(altlist, a:file)
+	let current = index(altlist, a:file)
 	let size = len(altlist)
 	while index < size
 		let file = altlist[index]
@@ -579,4 +668,4 @@ command! -nargs=? -complete=file -count=1 AP call AlternateFile('pg<bang>', <cou
 command! -nargs=? -complete=file          AA call AlternateFile('ag<bang>',       0, <f-args>)
 command! -nargs=? -complete=file -bang    AC call AlternateFile('cg<bang>',       0, <f-args>)
 
-" vi:se ts=4 sw=4 noet fdm=marker:
+" vim:ts=4 sw=4 noet fdm=marker:
