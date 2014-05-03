@@ -522,6 +522,28 @@ function! s:SwitchFile(buffer, file, cmd)
 				execute 'tabedit ' . escape(file, ' ')
 			endif
 		endif
+	else
+		if a:buffer != -1
+			if empty(&switchbuf) || &switchbuf =~ 'useopen'
+				if s:HasBufferInTab(a:buffer, tabpagenr())
+					execute bufwinnr(a:buffer) . 'wincmd w'
+					return
+				endif
+			elseif &switchbuf =~ 'usetab'
+				let tab = s:FindTabWithBuffer(a:buffer, tabpagenr())
+				if tab
+					execute 'tabnext ' . tab
+					return
+				endif
+			endif
+		endif
+		if &switchbuf =~ 'split'
+			call s:SwitchFile(a:buffer, a:file, 's!')
+		elseif &switchbuf =~ 'newtab'
+			call s:SwitchFile(a:buffer, a:file, 't!')
+		else
+			call s:SwitchFile(a:buffer, a:file, 'e')
+		endif
 	endif
 endfunction
 
