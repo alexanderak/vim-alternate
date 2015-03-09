@@ -195,7 +195,7 @@ function! s:common_visitor(path, mode)
 	return visitor
 endfunction
 
-function! s:glob_visitor(path, mode)
+function! s:base_glob_visitor(path, mode)
 	let visitor = {}
 	let visitor.orig = a:path
 	let visitor.mode = a:mode ? 1 : 0
@@ -206,7 +206,7 @@ function! s:glob_visitor(path, mode)
 	let visitor.glob_cache = {}
 	function visitor.glob(expr) dict
 		if !has_key(self.glob_cache, a:expr)
-			let self.glob_cache[a:expr] = glob(a:expr, 0, 1)
+			let self.glob_cache[a:expr] = self.glob_func(a:expr)
 		endif
 		return self.glob_cache[a:expr]
 	endfunction
@@ -247,6 +247,50 @@ function! s:glob_visitor(path, mode)
 	return visitor
 endfunction
 
+function! s:glob_visitor(path, mode)
+	let visitor = s:base_glob_visitor(a:path, a:mode)
+	function visitor.glob_func(expr) dict
+		return glob(a:expr, 0, 1)
+	endfunction
+	return visitor
+endfunction
+
+function! s:fugitive_glob2re(str)
+	return a:str ==# '*' ? '\(\[^/]\*\)' : '\(\.\*\)'
+endfunction
+
+function! s:fugitive_visitor(path, mode, buffer)
+	let visitor = s:base_glob_visitor(a:path, a:mode)
+	let visitor.backslash = s:backslash()
+	let visitor.start = len(a:path) - len(fugitive#buffer(a:buffer).path())
+	let visitor.prefix = strpart(a:path, 0, visitor.start)
+
+	let commit = fugitive#buffer(a:buffer).commit()
+	let command = fugitive#buffer(a:buffer).repo().git_command() . ' ls-tree --name-only --full-tree -r ' . commit
+	let visitor.filelist = systemlist(command)
+
+	function visitor.glob_func(expr) dict
+		let result = []
+		let expr = strpart(a:expr, self.start)
+		if self.backslash
+			let expr = substitute(expr, '\\', '/', 'g')
+		endif
+		let expr = substitute(expr, '*\+', '\=s:fugitive_glob2re(submatch(0))', 'g')
+		let expr = '\V\C' . expr . '\$'
+		for file in self.filelist
+			if file =~# expr
+				if self.backslash
+					let file = substitute(file, '/', '\\', 'g')
+				endif
+				call add(result, self.prefix . file)
+			endif
+		endfor
+		return result
+	endfunction
+
+	return visitor
+endfunction
+
 function! s:find_algo(groups, path, visitor)
 	let filename = fnamemodify(a:path, ':t:r')
 	for templates in a:groups
@@ -272,28 +316,39 @@ function! s:find_algo(groups, path, visitor)
 endfunction
 
 function! s:find_files(groups, path, mode)
-	let visitor = s:common_visitor(a:path, a:mode)
-	call s:find_algo(a:groups, a:path, visitor)
-	if visitor.existing
-		let result = visitor.result
-	else
-		let glob_visitor = s:glob_visitor(a:path, a:mode)
-		let templates = s:find_algo(a:groups, a:path, glob_visitor)
-		if glob_visitor.existing
-			if a:mode > 1
-				call uniq(glob_visitor.result)
-				let result = []
-				let groups = a:mode == 2 ? [ templates ] : a:groups
-				for file in glob_visitor.result
-					let visitor = s:common_visitor(file, a:mode)
-					call s:find_algo(groups, file, visitor)
-					call extend(result, visitor.result)
-				endfor
-			else
-				let result = glob_visitor.result
-			endif
+	if a:path =~# '^fugitive:'
+		let buffer = bufnr(a:path)
+		if buffer < 0
+			let result = []
 		else
+			let visitor = s:fugitive_visitor(a:path, a:mode, buffer)
+			call s:find_algo(a:groups, a:path, visitor)
 			let result = visitor.result
+		endif
+	else
+		let visitor = s:common_visitor(a:path, a:mode)
+		call s:find_algo(a:groups, a:path, visitor)
+		if visitor.existing
+			let result = visitor.result
+		else
+			let glob_visitor = s:glob_visitor(a:path, a:mode)
+			let templates = s:find_algo(a:groups, a:path, glob_visitor)
+			if glob_visitor.existing
+				if a:mode > 1
+					call uniq(glob_visitor.result)
+					let result = []
+					let groups = a:mode == 2 ? [ templates ] : a:groups
+					for file in glob_visitor.result
+						let visitor = s:common_visitor(file, a:mode)
+						call s:find_algo(groups, file, visitor)
+						call extend(result, visitor.result)
+					endfor
+				else
+					let result = glob_visitor.result
+				endif
+			else
+				let result = visitor.result
+			endif
 		endif
 	endif
 	call sort(result)
