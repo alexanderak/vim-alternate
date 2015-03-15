@@ -28,14 +28,8 @@ function! s:backslash()
 	return exists('+shellslash') && !&shellslash
 endfunction
 
-function! s:glob2re(str)
-	if a:str[0] ==# '{'
-		if a:str ==# '{}'
-			return '\[^/]\+'
-		endif
-		let str = escape(strpart(a:str, 1, len(a:str) - 2), '\')
-		return '\%(' . substitute(str, '|', '\\|', 'g') . '\)'
-	elseif a:str[0] ==# '/'
+function! s:star2re(str)
+	if a:str[0] ==# '/'
 		if a:str[len(a:str) - 1] ==# '/'
 			return a:str =~# '\*\*\+' ? '\(/\|/\.\+/\)' : '\(/\|/\[^/]\+/\)'
 		endif
@@ -47,32 +41,40 @@ function! s:glob2re(str)
 	endif
 endfunction
 
+function! s:glob2re(str)
+	if a:str[0] !=# '{'
+		return s:star2re(a:str)
+	elseif a:str ==# '{}'
+		return '\[^/]\+'
+	endif
+	let str = escape(strpart(a:str, 1, len(a:str) - 2), '\')
+	return '\%(' . substitute(str, '|', '\\|', 'g') . '\)'
+endfunction
+
 function! s:match_templates(templates, filename)
 	let backslash = s:backslash()
 	let i = 0
-	for template in a:templates
-		let template = substitute(template, '\(/\?\*\+/\?\)\|\({[^{}]*}\)', '\=s:glob2re(submatch(0))', 'g')
+	let N = len(a:templates)
+	while i < N
+		let template = substitute(a:templates[i], '\(/\?\*\+/\?\)\|\({[^{}]*}\)', '\=s:glob2re(submatch(0))', 'g')
 		if backslash
 			let template = substitute(template, '/', '\\\\', 'g')
 		endif
 		let template = '\V\C' . template . '\$'
-		let pos = match(a:filename, template)
-		if pos >= 0
-			let parts = matchlist(a:filename, template)
-			let parts[0] = strpart(a:filename, 0, pos)
-			return [ i, parts ]
+		if match(a:filename, template) >= 0
+			return i
 		endif
 		let i += 1
-	endfor
-	return [ -1, [] ]
+	endwhile
+	return -1
 endfunction
 
-function! s:parse_template(template)
+function! s:split_template(template)
 	let result = []
 	let template = a:template
-	let re = '{[^{}]\+}'
+	let pat = '\(/\?\*\+/\?\)\|\({[^{}]*}\)'
 	while !empty(template)
-		let pos = match(template, re)
+		let pos = match(template, pat)
 		if pos < 0
 			call add(result, template)
 			break
@@ -80,12 +82,72 @@ function! s:parse_template(template)
 			call add(result, strpart(template, 0, pos))
 			let template = strpart(template, pos)
 		endif
-		let str = matchstr(template, re)
+		let str = matchstr(template, pat)
 		let len = len(str)
-		call add(result, split(strpart(str, 1, len - 2), '|'))
+		if str[0] !=# '{' || str ==# '{}'
+			call add(result, str)
+		else
+			call add(result, split(strpart(str, 1, len - 2), '|', 1))
+		endif
 		let template = strpart(template, len)
 	endwhile
 	return result
+endfunction
+
+function! s:walk_matches_component(components, num, path, glob, parts, result, component)
+	let comp = '\V\C' . escape(a:component, '\')
+	if s:backslash()
+		let comp = substitute(comp, '/', '\\\\', 'g')
+	endif
+	let counter = 1
+	let pos = match(a:path, comp, 0, counter)
+	while pos >= 0
+		if !empty(a:glob) && !strpart(a:path, 0, pos) =~# '\V\C\^' . a:glob . '\$'
+			break
+		endif
+		if a:num == 0 || !empty(a:glob)
+			call add(a:parts, strpart(a:path, 0, pos))
+		endif
+		let n = matchend(a:path, comp, pos)
+		call s:walk_matches(a:components, a:num + 1, strpart(a:path, n), '', a:parts, a:result)
+		if a:num == 0 || !empty(a:glob)
+			call remove(a:parts, -1)
+		endif
+		let counter += 1
+		let pos = match(a:path, comp, 0, counter)
+	endwhile
+endfunction
+
+function! s:walk_matches(components, num, path, glob, parts, result)
+	if a:num >= len(a:components)
+		if empty(a:path)
+			call add(a:result, copy(a:parts))
+		endif
+		return
+	endif
+	if type(a:components[a:num]) == 3
+		for comp in a:components[a:num]
+			if empty(comp)
+				call s:walk_matches(a:components, a:num + 1, a:path, a:glob, a:parts, a:result)
+			else
+				call s:walk_matches_component(a:components, a:num, a:path, a:glob, a:parts, a:result, comp)
+			endif
+		endfor
+		return
+	endif
+	let comp = a:components[a:num]
+	if comp =~# '/\?\*\+/\?'
+		let glob = s:star2re(comp)
+		if s:backslash()
+			let glob = substitute(glob, '/', '\\\\', 'g')
+		endif
+		call s:walk_matches(a:components, a:num + 1, a:path, a:glob . glob, a:parts, a:result)
+	else
+		if comp ==# '{}'
+			let comp = fnamemodify(a:path, ':t:r')
+		endif
+		call s:walk_matches_component(a:components, a:num, a:path, a:glob, a:parts, a:result, comp)
+	endif
 endfunction
 
 function! s:expand_wildcards(list, filename, parts)
@@ -95,16 +157,15 @@ function! s:expand_wildcards(list, filename, parts)
 	let backslash = s:backslash()
 	while i < N
 		if type(a:list[i]) != 3
-			let str = substitute(a:list[i], '{}', escape(a:filename, '\'), 'g')
-			while p < len(a:parts)
-				let s = substitute(str, '/\?\*\+/\?', escape(a:parts[p], '\'), 'g')
-				if s ==# str
-					break
-				endif
-				let str = s
+			if a:list[i] ==# '{}'
+				let str = substitute(a:list[i], '{}', escape(a:filename, '\'), 'g')
+				let a:list[i] = backslash ? substitute(str, '/', '\\', 'g') : str
+			elseif a:list[i] =~# '\*' && p < len(a:parts)
+				let a:list[i] = a:parts[p]
 				let p += 1
-			endwhile
-			let a:list[i] = backslash ? substitute(str, '/', '\\', 'g') : str
+			elseif backslash
+				let a:list[i] = substitute(a:list[i], '/', '\\', 'g')
+			endif
 		elseif backslash
 			let j = 0
 			let M = len(a:list[i])
@@ -148,7 +209,7 @@ function! s:common_visitor(path, mode)
 	let visitor.found = 0
 	let visitor.existing = 0
 
-	function visitor.begin(parts) dict
+	function visitor.begin(multiparts) dict
 		let self.found = 0
 	endfunction
 
@@ -157,7 +218,7 @@ function! s:common_visitor(path, mode)
 			let self.existing = self.found
 			return self.found
 		endif
-		return self.mode == 2 ? self.found : 0
+		return self.mode == 2 ? self.existing : 0
 	endfunction
 
 	if visitor.mode == 0 " first existing file
@@ -211,8 +272,12 @@ function! s:base_glob_visitor(path, mode)
 		return self.glob_cache[a:expr]
 	endfunction
 
-	function visitor.begin(parts) dict
-		call remove(a:parts, 1, -1)
+	function visitor.begin(multiparts) dict
+		for parts in a:multiparts
+			if len(parts) > 1
+				call remove(parts, 1, -1)
+			endif
+		endfor
 		let self.found = 0
 	endfunction
 
@@ -294,18 +359,26 @@ endfunction
 function! s:find_algo(groups, path, visitor)
 	let filename = fnamemodify(a:path, ':t:r')
 	for templates in a:groups
-		let [ num, parts ] = s:match_templates(templates, a:path)
+		let num = s:match_templates(templates, a:path)
 		if num >= 0
-			let range = range(len(templates))
-			call remove(range, num)
-			call add(range, num)
-			call a:visitor.begin(parts)
-			for i in range
-				let components = s:parse_template(templates[i])
-				call s:expand_wildcards(components, filename, parts)
-				if s:walk_components(components, a:visitor, 0, '')
-					break
-				endif
+			let multiparts = []
+			let components = s:split_template(templates[num])
+			call s:walk_matches(components, 0, a:path, '', [], multiparts)
+			call a:visitor.begin(multiparts)
+			for parts in multiparts
+				let range = range(len(templates))
+				call remove(range, num)
+				call add(range, num)
+				for i in range
+					let components = s:split_template(templates[i])
+					call s:expand_wildcards(components, filename, parts)
+					if s:walk_components(components, a:visitor, 0, '')
+						if a:visitor.end()
+							return templates
+						endif
+						break
+					endif
+				endfor
 			endfor
 			if a:visitor.end()
 				return templates
