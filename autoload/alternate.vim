@@ -94,6 +94,54 @@ function! s:split_template(template)
 	return result
 endfunction
 
+function! s:walk_filenames(components, filename, num, pat, result)
+	if a:num >= len(a:components)
+		if a:filename =~# a:pat
+			call add(a:result, matchstr(a:filename, a:pat))
+		endif
+		return
+	endif
+	if type(a:components[a:num]) == 3
+		for comp in a:components[a:num]
+			if !empty(comp)
+				call s:walk_filenames(a:components, a:filename, a:num + 1, a:pat . escape(comp, '\'), a:result)
+			endif
+		endfor
+	else
+		call s:walk_filenames(a:components, a:filename, a:num + 1, a:pat . '\zs\.\*\ze', a:result)
+	endif
+endfunction
+
+function! s:expand_filename(components, filename)
+	let i = 0
+	let N = len(a:components)
+	while i < N
+		if type(a:components[i]) == 1 && a:components[i] ==# '{}'
+			let a = i
+			while a > 0 && type(a:components[a - 1]) == 3
+				let a -= 1
+			endwhile
+			let b = i
+			while b + 1 < N && type(a:components[b + 1]) == 3
+				let b += 1
+			endwhile
+			if a == b
+				let a:components[i] = a:filename
+			else
+				let names = []
+				call s:walk_filenames(a:components[a : b], a:filename, 0, '\V\C', names)
+				if empty(names)
+					let a:components[i] = a:filename
+				else
+					unlet a:components[i]
+					call insert(a:components, names, i)
+				endif
+			endif
+		endif
+		let i += 1
+	endwhile
+endfunction
+
 function! s:walk_matches_component(components, num, path, glob, parts, result, component)
 	let comp = '\V\C' . escape(a:component, '\')
 	if s:backslash()
@@ -102,7 +150,7 @@ function! s:walk_matches_component(components, num, path, glob, parts, result, c
 	let counter = 1
 	let pos = match(a:path, comp, 0, counter)
 	while pos >= 0
-		if !empty(a:glob) && !strpart(a:path, 0, pos) =~# '\V\C\^' . a:glob . '\$'
+		if !empty(a:glob) && strpart(a:path, 0, pos) !~# '\V\C\^' . a:glob . '\$'
 			break
 		endif
 		if a:num == 0 || !empty(a:glob)
@@ -111,7 +159,7 @@ function! s:walk_matches_component(components, num, path, glob, parts, result, c
 		let n = matchend(a:path, comp, pos)
 		call s:walk_matches(a:components, a:num + 1, strpart(a:path, n), '', a:parts, a:result)
 		if a:num == 0 || !empty(a:glob)
-			call remove(a:parts, -1)
+			unlet a:parts[-1]
 		endif
 		let counter += 1
 		let pos = match(a:path, comp, 0, counter)
@@ -123,9 +171,7 @@ function! s:walk_matches(components, num, path, glob, parts, result)
 		if empty(a:path)
 			call add(a:result, copy(a:parts))
 		endif
-		return
-	endif
-	if type(a:components[a:num]) == 3
+	elseif type(a:components[a:num]) == 3
 		for comp in a:components[a:num]
 			if empty(comp)
 				call s:walk_matches(a:components, a:num + 1, a:path, a:glob, a:parts, a:result)
@@ -133,20 +179,14 @@ function! s:walk_matches(components, num, path, glob, parts, result)
 				call s:walk_matches_component(a:components, a:num, a:path, a:glob, a:parts, a:result, comp)
 			endif
 		endfor
-		return
-	endif
-	let comp = a:components[a:num]
-	if comp =~# '/\?\*\+/\?'
-		let glob = s:star2re(comp)
+	elseif a:components[a:num] =~# '/\?\*\+/\?'
+		let glob = s:star2re(a:components[a:num])
 		if s:backslash()
 			let glob = substitute(glob, '/', '\\\\', 'g')
 		endif
 		call s:walk_matches(a:components, a:num + 1, a:path, a:glob . glob, a:parts, a:result)
 	else
-		if comp ==# '{}'
-			let comp = fnamemodify(a:path, ':t:r')
-		endif
-		call s:walk_matches_component(a:components, a:num, a:path, a:glob, a:parts, a:result, comp)
+		call s:walk_matches_component(a:components, a:num, a:path, a:glob, a:parts, a:result, a:components[a:num])
 	endif
 endfunction
 
@@ -201,9 +241,10 @@ function! s:walk_components(components, visitor, num, path)
 	return s:walk_components(a:components, a:visitor, a:num + 1, a:path . a:components[a:num])
 endfunction
 
-function! s:common_visitor(path, mode)
+function! s:base_visitor(path, mode)
 	let visitor = {}
-	let visitor.orig = a:path
+	let visitor.path = a:path
+	let visitor.filename = fnamemodify(a:path, ':t:r')
 	let visitor.mode = a:mode
 	let visitor.result = []
 	let visitor.found = 0
@@ -214,19 +255,36 @@ function! s:common_visitor(path, mode)
 	endfunction
 
 	function visitor.end() dict
-		if self.mode == 0 || self.mode == 1
+		if self.mode == 0
+			if len(self.result) > 1
+				if fnamemodify(self.result[-1], ':t:r') ==# self.filename
+					unlet self.result[ : -2]
+				else
+					unlet self.result[1 : ]
+				endif
+			endif
 			let self.existing = self.found
 			return self.found
+		elseif self.mode == 1
+			let self.existing = self.found
+			return self.found
+		else
+			return self.mode == 2 ? self.existing : 0
 		endif
-		return self.mode == 2 ? self.existing : 0
 	endfunction
+
+	return visitor
+endfunction
+
+function! s:common_visitor(path, mode)
+	let visitor = s:base_visitor(a:path, a:mode)
 
 	if visitor.mode == 0 " first existing file
 		function visitor.visit(expr) dict
-			if a:expr !=# self.orig && filereadable(a:expr)
+			if a:expr !=# self.path && filereadable(a:expr)
 				call add(self.result, a:expr)
 				let self.found += 1
-				return 1
+				return fnamemodify(a:expr, ':t:r') ==# self.filename
 			endif
 			return 0
 		endfunction
@@ -234,7 +292,7 @@ function! s:common_visitor(path, mode)
 		function visitor.visit(expr) dict
 			if filereadable(a:expr)
 				call add(self.result, a:expr)
-				if a:expr !=# self.orig
+				if a:expr !=# self.path
 					let self.found += 1
 				endif
 			endif
@@ -244,7 +302,7 @@ function! s:common_visitor(path, mode)
 		function visitor.visit(expr) dict
 			if isdirectory(fnamemodify(a:expr, ':h'))
 				call add(self.result, a:expr)
-				if a:expr !=# self.orig
+				if a:expr !=# self.path
 					let self.found += 1
 					if filereadable(a:expr)
 						let self.existing += 1
@@ -253,16 +311,12 @@ function! s:common_visitor(path, mode)
 			endif
 		endfunction
 	endif
+
 	return visitor
 endfunction
 
-function! s:base_glob_visitor(path, mode)
-	let visitor = {}
-	let visitor.orig = a:path
-	let visitor.mode = a:mode ? 1 : 0
-	let visitor.result = []
-	let visitor.found = 0
-	let visitor.existing = 0
+function! s:glob_visitor(path, mode)
+	let visitor = s:base_visitor(a:path, a:mode ? 1 : 0)
 
 	let visitor.glob_cache = {}
 	function visitor.glob(expr) dict
@@ -272,27 +326,26 @@ function! s:base_glob_visitor(path, mode)
 		return self.glob_cache[a:expr]
 	endfunction
 
-	function visitor.begin(multiparts) dict
+	function visitor.glob_func(expr) dict
+		return glob(a:expr, 0, 1)
+	endfunction
+
+	function! visitor.begin(multiparts) dict
 		for parts in a:multiparts
 			if len(parts) > 1
-				call remove(parts, 1, -1)
+				unlet parts[1 : ]
 			endif
 		endfor
 		let self.found = 0
 	endfunction
 
-	function visitor.end() dict
-		let self.existing = self.found
-		return self.found
-	endfunction
-
 	if visitor.mode == 0 " first existing file
 		function visitor.visit(expr) dict
 			for file in self.glob(a:expr)
-				if file !=# self.orig
+				if file !=# self.path
 					call add(self.result, file)
 					let self.found += 1
-					return 1
+					return fnamemodify(a:expr, ':t:r') ==# self.filename
 				endif
 			endfor
 			return 0
@@ -301,7 +354,7 @@ function! s:base_glob_visitor(path, mode)
 		function visitor.visit(expr) dict
 			let list = self.glob(a:expr)
 			for file in list
-				if file !=# self.orig
+				if file !=# self.path
 					let self.found += 1
 				endif
 			endfor
@@ -312,20 +365,13 @@ function! s:base_glob_visitor(path, mode)
 	return visitor
 endfunction
 
-function! s:glob_visitor(path, mode)
-	let visitor = s:base_glob_visitor(a:path, a:mode)
-	function visitor.glob_func(expr) dict
-		return glob(a:expr, 0, 1)
-	endfunction
-	return visitor
-endfunction
-
 function! s:fugitive_glob2re(str)
 	return a:str ==# '*' ? '\(\[^/]\*\)' : '\(\.\*\)'
 endfunction
 
 function! s:fugitive_visitor(path, mode, buffer)
-	let visitor = s:base_glob_visitor(a:path, a:mode)
+	let visitor = s:glob_visitor(a:path, a:mode)
+
 	let visitor.backslash = s:backslash()
 	let visitor.start = len(a:path) - len(fugitive#buffer(a:buffer).path())
 	let visitor.prefix = strpart(a:path, 0, visitor.start)
@@ -334,7 +380,7 @@ function! s:fugitive_visitor(path, mode, buffer)
 	let command = fugitive#buffer(a:buffer).repo().git_command() . ' ls-tree --name-only --full-tree -r ' . commit
 	let visitor.filelist = systemlist(command)
 
-	function visitor.glob_func(expr) dict
+	function! visitor.glob_func(expr) dict
 		let result = []
 		let expr = strpart(a:expr, self.start)
 		if self.backslash
@@ -363,16 +409,19 @@ function! s:find_algo(groups, path, visitor)
 		if num >= 0
 			let multiparts = []
 			let components = s:split_template(templates[num])
+			call s:expand_filename(components, filename)
 			call s:walk_matches(components, 0, a:path, '', [], multiparts)
 			call a:visitor.begin(multiparts)
-			for parts in multiparts
-				let range = range(len(templates))
-				call remove(range, num)
-				call add(range, num)
-				for i in range
-					let components = s:split_template(templates[i])
-					call s:expand_wildcards(components, filename, parts)
-					if s:walk_components(components, a:visitor, 0, '')
+			let range = range(len(templates))
+			unlet range[num]
+			call add(range, num)
+			for i in range
+				let components = s:split_template(templates[i])
+				call s:expand_filename(components, filename)
+				for parts in multiparts
+					let comps = copy(components)
+					call s:expand_wildcards(comps, filename, parts)
+					if s:walk_components(comps, a:visitor, 0, '')
 						if a:visitor.end()
 							return templates
 						endif
@@ -408,6 +457,7 @@ function! s:find_files(groups, path, mode)
 			let templates = s:find_algo(a:groups, a:path, glob_visitor)
 			if glob_visitor.existing
 				if a:mode > 1
+					call sort(glob_visitor.result)
 					call uniq(glob_visitor.result)
 					let result = []
 					let groups = a:mode == 2 ? [ templates ] : a:groups
