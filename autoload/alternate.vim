@@ -501,74 +501,89 @@ function! s:find_buffer_tab(buffer, curtab)
 endfunction
 
 function! s:switch_file(buffer, file, cmd)
-	let file = fnamemodify(a:file, ':~:.')
-	if a:cmd[0] ==# 'g'
-		if a:buffer == -1
-			execute 'edit' escape(file, ' ')
+
+	" Use switchbuf option
+	if empty(a:cmd)
+		if &switchbuf =~# 'newtab'
+			let cmd = 't'
+		elseif &switchbuf =~# 'split'
+			let cmd= 's'
+		elseif &switchbuf =~# 'usetab'
+			let cmd= 'g!e'
+		elseif &switchbuf =~# 'useopen'
+			let cmd= 'ge'
 		else
+			let cmd = 'e'
+		endif
+		call s:switch_file(a:buffer, a:file, cmd)
+	endif
+	
+	" Go to opened buffer
+	if a:buffer != -1 && a:cmd =~ 'g'
+		if a:cmd =~# 'g'
 			let curtab = tabpagenr()
 			if index(tabpagebuflist(curtab), a:buffer) >= 0
 				execute bufwinnr(a:buffer) . 'wincmd w'
-			else
+				return
+			endif
+			if a:cmd =~# 'g!'
 				let tab = s:find_buffer_tab(a:buffer, curtab)
 				if tab
 					execute 'tabnext' tab
-				else
-					execute 'buffer' file
+					execute bufwinnr(a:buffer) . 'wincmd w'
+					return
 				endif
 			endif
-		endif
-	elseif a:cmd[0] ==# 'e'
-		if a:buffer == -1
-			execute 'edit' escape(file, ' ')
-		else
-			execute 'buffer' file
-		endif
-	elseif a:cmd[0] ==# 's' || a:cmd[0] ==# 'v'
-		if a:buffer == -1
-			execute (a:cmd[0] ==# 'v' ? 'vertical ' : '' ) . 'split' escape(file, ' ')
-		elseif a:cmd[1] != '!' && index(tabpagebuflist(tabpagenr()), a:buffer) >= 0
-			execute bufwinnr(a:buffer) . 'wincmd w'
-		else
-			execute (a:cmd[0] ==# 'v' ? 'vertical ' : '' ) . 'sbuffer' a:buffer
-		endif
-	elseif a:cmd[0] ==# 't'
-		if a:buffer == -1
-			execute 'tabedit' escape(file, ' ')
-		elseif a:cmd[1] == '!'
-			execute 'tabedit' escape(file, ' ')
 		else
 			let curtab = tabpagenr()
 			let tab = s:find_buffer_tab(a:buffer, curtab)
 			if tab
 				execute 'tabnext' tab
 				execute bufwinnr(a:buffer) . 'wincmd w'
-			else
-				execute 'tabedit' escape(file, ' ')
+				return
 			endif
-		endif
-	else
-		if a:buffer != -1
-			if empty(&switchbuf) || &switchbuf =~# 'useopen'
-				if index(tabpagebuflist(tabpagenr()), a:buffer) >= 0
+			if a:cmd =~# 'G!'
+				if index(tabpagebuflist(curtab), a:buffer) >= 0
 					execute bufwinnr(a:buffer) . 'wincmd w'
 					return
 				endif
-			elseif &switchbuf =~ 'usetab'
-				let tab = s:find_buffer_tab(a:buffer, tabpagenr())
-				if tab
-					execute 'tabnext' tab
-					return
-				endif
 			endif
 		endif
-		if &switchbuf =~# 'split'
-			call s:switch_file(a:buffer, a:file, 's!')
-		elseif &switchbuf =~# 'newtab'
-			call s:switch_file(a:buffer, a:file, 't!')
+	endif
+
+	let file = fnamemodify(a:file, ':~:.')
+
+	" Use current window
+	if a:cmd =~ 'e'
+		let bang = a:cmd =~ 'e!' ? '!' : ''
+		if a:buffer == -1
+			execute 'edit' . bang escape(file, ' ')
 		else
-			call s:switch_file(a:buffer, a:file, 'e')
+			execute 'buffer' . bang a:buffer
 		endif
+
+	" Split window
+	elseif a:cmd =~ 's'
+		let where = a:cmd =~ 's!' ? (&splitbelow ? 'leftabove ' : 'rightbelow ') : ''
+		if a:buffer == -1
+			execute where . 'split' escape(file, ' ')
+		else
+			execute where . 'sbuffer' a:buffer
+		endif
+
+	" Verical split
+	elseif a:cmd =~ 'v'
+		let where = a:cmd =~ 'v!' ? (&splitright ? 'leftabove ' : 'rightbelow ') : ''
+		if a:buffer == -1
+			execute where . 'vsplit' escape(file, ' ')
+		else
+			execute where . 'vertical sbuffer' a:buffer
+		endif
+
+	" Tab
+	elseif a:cmd =~ 't'
+		execute 'tabedit' escape(file, ' ')
+
 	endif
 endfunction
 
