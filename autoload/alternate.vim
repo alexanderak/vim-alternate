@@ -326,9 +326,16 @@ function! s:glob_visitor(path, mode)
 		return self.glob_cache[a:expr]
 	endfunction
 
-	function visitor.glob_func(expr) dict
-		return glob(a:expr, 0, 1)
-	endfunction
+	if s:backslash()
+		function visitor.glob_func(expr) dict
+			let expr = substitute(a:expr, '\\\*\*\\', '/**/', 'g')
+			return glob(expr, 0, 1)
+		endfunction
+	else
+		function visitor.glob_func(expr) dict
+			return glob(a:expr, 0, 1)
+		endfunction
+	endif
 
 	function! visitor.begin(multiparts) dict
 		for parts in a:multiparts
