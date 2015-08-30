@@ -24,6 +24,29 @@ let s:groups = [
              \ ]
 
 " Core {{{
+if exists('*uniq')
+	function! s:uniq(list)
+		return uniq(a:list)
+	endfunction
+else
+	function! s:uniq(list)
+		let seen = {}
+		let i = 0
+		let N = len(a:list)
+		while i < N
+			let str = string(a:list[i])
+			if has_key(seen, str)
+				call remove(a:list, i)
+				let N -= 1
+			else
+				let seen[str] = 1
+				let i += 1
+			endif
+		endwhile
+		return a:list
+	endfunction
+endif
+
 function! s:backslash()
 	return exists('+shellslash') && !&shellslash
 endfunction
@@ -465,7 +488,7 @@ function! s:find_files(groups, path, mode)
 			if glob_visitor.existing
 				if a:mode > 1
 					call sort(glob_visitor.result)
-					call uniq(glob_visitor.result)
+					call s:uniq(glob_visitor.result)
 					let result = []
 					let groups = a:mode == 2 ? [ templates ] : a:groups
 					for file in glob_visitor.result
@@ -482,7 +505,7 @@ function! s:find_files(groups, path, mode)
 		endif
 	endif
 	call sort(result)
-	call uniq(result)
+	call s:uniq(result)
 	return result
 endfunction
 " }}}
@@ -523,6 +546,7 @@ function! s:switch_file(buffer, file, cmd)
 			let cmd = 'e'
 		endif
 		call s:switch_file(a:buffer, a:file, cmd)
+		return
 	endif
 	
 	" Go to opened buffer
