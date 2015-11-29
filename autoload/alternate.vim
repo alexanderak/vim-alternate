@@ -47,6 +47,16 @@ else
 	endfunction
 endif
 
+if exists('*systemlist')
+	function! s:systemlist(expr)
+		return systemlist(a:expr)
+	endfunction
+else
+	function! s:systemlist(expr)
+		return split(system(a:expr), '\n')
+	endfunction
+endif
+
 function! s:backslash()
 	return exists('+shellslash') && !&shellslash
 endfunction
@@ -408,7 +418,7 @@ function! s:fugitive_visitor(path, mode, buffer)
 
 	let commit = fugitive#buffer(a:buffer).commit()
 	let command = fugitive#buffer(a:buffer).repo().git_command() . ' ls-tree --name-only --full-tree -r ' . commit
-	let visitor.filelist = systemlist(command)
+	let visitor.filelist = s:systemlist(command)
 
 	function! visitor.glob_func(expr) dict
 		let result = []
