@@ -478,14 +478,28 @@ function! s:find_algo(groups, path, visitor)
 endfunction
 
 function! s:find_files(groups, path, mode)
-	if a:path =~# '^fugitive:'
+	let fugitive = 'fugitive:'
+	if strpart(a:path, 0, len(fugitive)) ==# fugitive
 		let buffer = bufnr(a:path)
 		if buffer < 0
 			let result = []
 		else
-			let visitor = s:fugitive_visitor(a:path, a:mode, buffer)
-			call s:find_algo(a:groups, a:path, visitor)
-			let result = visitor.result
+			if s:backslash() && strpart(a:path, len(fugitive), len('//')) ==# '//'
+				let path = substitute(a:path, '/', '\\', 'g')
+				let visitor = s:fugitive_visitor(path, a:mode, buffer)
+				call s:find_algo(a:groups, path, visitor)
+				let result = visitor.result
+				let i = 0
+				let N = len(result)
+				while i < N
+					let result[i] = substitute(result[i], '\\', '/', 'g')
+					let i += 1
+				endwhile
+			else
+				let visitor = s:fugitive_visitor(a:path, a:mode, buffer)
+				call s:find_algo(a:groups, a:path, visitor)
+				let result = visitor.result
+			endif
 		endif
 	else
 		let visitor = s:common_visitor(a:path, a:mode)
