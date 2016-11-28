@@ -6,22 +6,22 @@
 " ============================================================================
 
 let s:groups = [
-             \   [ '{include|inc}/**/{}.h', '{src|source}/**/{}.{cpp|mm}' ],
-             \   [ '{include|inc}/**/{}.h', '{src|source}/**/{}.{c|m}' ],
-             \   [ '{include|inc}/**/{}.hpp', '{src|source}/**/{}.cpp' ],
-             \   [ '{include|inc}/**/{}.hxx', '{src|source}/**/{}.cxx' ],
-             \   [ '{include|inc}/**/{}.hh', '{src|source}/**/{}.cc' ],
-             \   [ '{include|inc}/**/{}.H', '{src|source}/**/{}.C' ],
-             \   [ '{}.h', '{}.{cpp|mm}' ],
-             \   [ '{}.h', '{}.{c|m}' ],
-             \   [ '{}.hpp', '{}.cpp' ],
-             \   [ '{}.hxx', '{}.cxx' ],
-             \   [ '{}.hh', '{}.cc' ],
-             \   [ '{}.H', '{}.C' ],
-             \   [ 'doc/{}.txt', 'plugin/{}.vim', 'autoload/{}.vim' ],
-             \   [ '.bash_profile', '.bashrc', '.bash_logout' ],
-             \   [ '.zprofile', '.zshrc', '.zlogin', '.zlogout', '.zshenv' ],
-             \ ]
+	\   [ '{include|inc}/**/{}.h', '{src|source}/**/{}.{cpp|mm}' ],
+	\   [ '{include|inc}/**/{}.h', '{src|source}/**/{}.{c|m}' ],
+	\   [ '{include|inc}/**/{}.hpp', '{src|source}/**/{}.cpp' ],
+	\   [ '{include|inc}/**/{}.hxx', '{src|source}/**/{}.cxx' ],
+	\   [ '{include|inc}/**/{}.hh', '{src|source}/**/{}.cc' ],
+	\   [ '{include|inc}/**/{}.H', '{src|source}/**/{}.C' ],
+	\   [ '{}.h', '{}.{cpp|mm}' ],
+	\   [ '{}.h', '{}.{c|m}' ],
+	\   [ '{}.hpp', '{}.cpp' ],
+	\   [ '{}.hxx', '{}.cxx' ],
+	\   [ '{}.hh', '{}.cc' ],
+	\   [ '{}.H', '{}.C' ],
+	\   [ 'doc/{}.txt', 'plugin/{}.vim', 'autoload/{}.vim' ],
+	\   [ '.bash_profile', '.bashrc', '.bash_logout' ],
+	\   [ '.zprofile', '.zshrc', '.zlogin', '.zlogout', '.zshenv' ],
+	\ ]
 
 " Core {{{
 if exists('*uniq')
@@ -442,42 +442,44 @@ function! s:fugitive_visitor(path, mode, buffer)
 	return visitor
 endfunction
 
-function! s:find_algo(groups, path, visitor)
+function! s:find_algo(chain, path, visitor)
 	let filename = fnamemodify(a:path, ':t:r')
-	for templates in a:groups
-		let num = s:match_templates(templates, a:path)
-		if num >= 0
-			let multiparts = []
-			let components = s:split_template(templates[num])
-			call s:expand_filename(components, filename)
-			call s:walk_matches(components, 0, a:path, '', [], multiparts)
-			call a:visitor.begin(multiparts)
-			let range = range(len(templates))
-			unlet range[num]
-			call add(range, num)
-			for i in range
-				let components = s:split_template(templates[i])
+	for groups in a:chain
+		for templates in groups
+			let num = s:match_templates(templates, a:path)
+			if num >= 0
+				let multiparts = []
+				let components = s:split_template(templates[num])
 				call s:expand_filename(components, filename)
-				for parts in multiparts
-					let comps = copy(components)
-					call s:expand_wildcards(comps, filename, parts)
-					if s:walk_components(comps, a:visitor, 0, '')
-						if a:visitor.end()
-							return templates
+				call s:walk_matches(components, 0, a:path, '', [], multiparts)
+				call a:visitor.begin(multiparts)
+				let range = range(len(templates))
+				unlet range[num]
+				call add(range, num)
+				for i in range
+					let components = s:split_template(templates[i])
+					call s:expand_filename(components, filename)
+					for parts in multiparts
+						let comps = copy(components)
+						call s:expand_wildcards(comps, filename, parts)
+						if s:walk_components(comps, a:visitor, 0, '')
+							if a:visitor.end()
+								return templates
+							endif
+							break
 						endif
-						break
-					endif
+					endfor
 				endfor
-			endfor
-			if a:visitor.end()
-				return templates
+				if a:visitor.end()
+					return templates
+				endif
 			endif
-		endif
+		endfor
 	endfor
 	return []
 endfunction
 
-function! s:find_files(groups, path, mode)
+function! s:find_files(chain, path, mode)
 	let fugitive = 'fugitive:'
 	if strpart(a:path, 0, len(fugitive)) ==# fugitive
 		let buffer = bufnr(a:path)
@@ -487,7 +489,7 @@ function! s:find_files(groups, path, mode)
 			if s:backslash() && strpart(a:path, len(fugitive), len('//')) ==# '//'
 				let path = substitute(a:path, '/', '\\', 'g')
 				let visitor = s:fugitive_visitor(path, a:mode, buffer)
-				call s:find_algo(a:groups, path, visitor)
+				call s:find_algo(a:chain, path, visitor)
 				let result = visitor.result
 				let i = 0
 				let N = len(result)
@@ -497,27 +499,27 @@ function! s:find_files(groups, path, mode)
 				endwhile
 			else
 				let visitor = s:fugitive_visitor(a:path, a:mode, buffer)
-				call s:find_algo(a:groups, a:path, visitor)
+				call s:find_algo(a:chain, a:path, visitor)
 				let result = visitor.result
 			endif
 		endif
 	else
 		let visitor = s:common_visitor(a:path, a:mode)
-		call s:find_algo(a:groups, a:path, visitor)
+		call s:find_algo(a:chain, a:path, visitor)
 		if visitor.existing
 			let result = visitor.result
 		else
 			let glob_visitor = s:glob_visitor(a:path, a:mode)
-			let templates = s:find_algo(a:groups, a:path, glob_visitor)
+			let templates = s:find_algo(a:chain, a:path, glob_visitor)
 			if glob_visitor.existing
 				if a:mode > 1
 					call sort(glob_visitor.result)
 					call s:uniq(glob_visitor.result)
 					let result = []
-					let groups = a:mode == 2 ? [ templates ] : a:groups
+					let chain = a:mode == 2 ? [ [ templates ] ] : a:chain
 					for file in glob_visitor.result
 						let visitor = s:common_visitor(file, a:mode)
-						call s:find_algo(groups, file, visitor)
+						call s:find_algo(chain, file, visitor)
 						call extend(result, visitor.result)
 					endfor
 				else
@@ -647,20 +649,33 @@ function! s:keep_alt(altfile, stuff)
 	call setbufvar(altbuf, type(a:stuff) == 3 ? 'alternate_list' : 'alternate_file', a:stuff)
 endfunction
 
-function! s:groups(buffer)
+function! s:groups_chain(buffer)
+	let list = getbufvar(a:buffer, 'alternate_templates')
+	if !empty(list)
+		return [ list ]
+	endif
+	let chain = []
 	let list = getbufvar(a:buffer, 'alternate_groups')
 	if !empty(list)
-		return list
+		call add(chain, list)
+		if empty(list[-1])
+			return chain
+		endif
 	endif
-	let list = getbufvar(a:buffer, 'alternate_templates')
-	return empty(list) ? s:groups : [ list ]
+	if !empty(get(g:, 'alternate_groups', []))
+		call add(chain, g:alternate_groups)
+		if empty(g:alternate_groups[-1])
+			return chain
+		endif
+	endif
+	return add(chain, s:groups)
 endfunction
 
 function! s:alternate_file(file)
 	let buffer = bufnr(a:file)
 	let altfile = getbufvar(buffer, 'alternate_file')
-	if empty(altfile)
-		let list = s:find_files(s:groups(buffer), a:file, 0)
+	if altfile is ''
+		let list = s:find_files(s:groups_chain(buffer), a:file, 0)
 		let altfile = empty(list) ? '' : list[0]
 	endif
 	return altfile
@@ -671,7 +686,7 @@ function! s:alternate_list(file)
 	let altlist = getbufvar(buffer, 'alternate_list')
 	if empty(altlist)
 		unlet altlist
-		let altlist = s:find_files(s:groups(buffer), a:file, 1)
+		let altlist = s:find_files(s:groups_chain(buffer), a:file, 1)
 		for file in altlist
 			call s:keep_alt(file, altlist)
 		endfor
@@ -683,7 +698,7 @@ function! s:ask_file(file, mode)
 	if a:mode == 1
 		let altlist = s:alternate_list(a:file)
 	else
-		let altlist = s:find_files(s:groups(bufnr(a:file)), a:file, a:mode)
+		let altlist = s:find_files(s:groups_chain(bufnr(a:file)), a:file, a:mode)
 	endif
 	if empty(altlist)
 		echo 'No alternate files'
@@ -710,8 +725,7 @@ endfunction
 " }}}
 
 function! alternate#switch(file, count, action)
-	let file = expand(a:file)
-	let file = fnamemodify(file, ':p')
+	let file = fnamemodify(expand(a:file), ':p')
 
 	if a:count
 		let altlist = s:alternate_list(file)
